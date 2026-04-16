@@ -21,8 +21,10 @@ import {
   DialogHeader, 
   DialogTitle, 
   DialogTrigger,
+  DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog";
-import { Plus, Undo, Redo, Trash2, Edit2, Settings2, Maximize2, Minimize2, Menu, Layout as LayoutIcon, ClipboardList, Settings, Search, Check, Send, Lock, Unlock, ChevronRight, ChevronLeft, X, Sun, Moon, BarChart3, Activity } from "lucide-react";
+import { Plus, Undo, Redo, Trash2, Edit2, Settings2, Maximize2, Minimize2, Menu, Layout as LayoutIcon, ClipboardList, Settings, Search, Check, Send, Lock, Unlock, ChevronRight, ChevronLeft, X, Sun, Moon, BarChart3, Activity, Eye, EyeOff } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Sheet,
@@ -40,7 +42,7 @@ import {
 } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { fetchAppData, loginUser, saveLayout, submitChecklist, updateMasterData, submitUpdateHistory, PengerjaanItem, StatusChecklist, type MasterData } from "./services/spreadsheetService";
+import { fetchAppData, loginUser, registerUser, saveLayout, submitChecklist, updateMasterData, submitUpdateHistory, PengerjaanItem, StatusChecklist, type MasterData } from "./services/spreadsheetService";
 
 // --- Components ---
 
@@ -198,9 +200,14 @@ const Panel: React.FC<PanelProps> = ({ panel, onEdit, onDelete, isOverlay, disab
 
 export default function App() {
   const [user, setUser] = useState<string | null>(() => localStorage.getItem("emt_user"));
+  const [userRole, setUserRole] = useState<string | null>(() => localStorage.getItem("emt_role"));
   const [historyUserName, setHistoryUserName] = useState(user || "");
   const [loginData, setLoginData] = useState({ username: "", password: "" });
   const [loginError, setLoginError] = useState("");
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [registerData, setRegisterData] = useState({ fullName: "", team: "", username: "", password: "", confirmPassword: "" });
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   useEffect(() => {
     if (user) setHistoryUserName(user);
@@ -904,7 +911,9 @@ export default function App() {
     // Master Account Bypass
     if (loginData.username === "rifanma45" && loginData.password === "maul45") {
       setUser("rifanma45");
+      setUserRole("master");
       localStorage.setItem("emt_user", "rifanma45");
+      localStorage.setItem("emt_role", "master");
       setLoginError("");
       return;
     }
@@ -916,7 +925,9 @@ export default function App() {
     const res = await loginUser(appsScriptUrl, loginData);
     if (res.status === "success" && res.user) {
       setUser(res.user);
+      setUserRole(res.role || "user");
       localStorage.setItem("emt_user", res.user);
+      localStorage.setItem("emt_role", res.role || "user");
       setLoginError("");
     } else {
       setLoginError(res.message || "Login Gagal");
@@ -925,7 +936,46 @@ export default function App() {
 
   const handleLogout = () => {
     setUser(null);
+    setUserRole(null);
     localStorage.removeItem("emt_user");
+    localStorage.removeItem("emt_role");
+  };
+
+  const handleRegister = async () => {
+    if (!appsScriptUrl) return;
+    
+    // Validation
+    if (!registerData.fullName || !registerData.team || !registerData.username || !registerData.password) {
+      setLoginError("Semua field wajib diisi");
+      return;
+    }
+    
+    if (registerData.username.length < 8 || !/\d/.test(registerData.username)) {
+      setLoginError("Username minimal 8 karakter dan wajib ada minimal 1 angka");
+      return;
+    }
+    
+    if (registerData.password.length < 8 || !/[a-zA-Z]/.test(registerData.password) || !/\d/.test(registerData.password)) {
+      setLoginError("Password minimal 8 karakter kombinasi angka dan huruf");
+      return;
+    }
+    
+    if (registerData.password !== registerData.confirmPassword) {
+      setLoginError("Konfirmasi password tidak cocok");
+      return;
+    }
+
+    setIsSyncing(true);
+    const res = await registerUser(appsScriptUrl, registerData);
+    setIsSyncing(false);
+    
+    if (res.status === "success") {
+      setIsRegistering(false);
+      setLoginError("Pendaftaran berhasil! Silakan login.");
+      setRegisterData({ fullName: "", team: "", username: "", password: "", confirmPassword: "" });
+    } else {
+      setLoginError(res.message || "Pendaftaran gagal");
+    }
   };
 
   const handleChecklistSubmit = async () => {
@@ -1146,6 +1196,18 @@ export default function App() {
             >
               Login System
             </Button>
+
+            <div className="text-center pt-4">
+              <button 
+                onClick={() => {
+                  setIsRegistering(true);
+                  setLoginError("");
+                }}
+                className="text-[10px] font-bold text-slate-400 uppercase tracking-widest hover:text-blue-600 transition-colors"
+              >
+                Belum punya akun? <span className="underline">Buat Akun</span>
+              </button>
+            </div>
           </div>
 
           <div className="pt-6 border-t border-slate-50">
@@ -1154,6 +1216,109 @@ export default function App() {
             </p>
           </div>
         </motion.div>
+
+        {/* Registration Modal */}
+        <Dialog open={isRegistering} onOpenChange={setIsRegistering}>
+          <DialogContent className="sm:max-w-md rounded-[40px] p-10">
+            <DialogHeader className="space-y-2 text-center">
+              <DialogTitle className="text-2xl font-black uppercase tracking-tighter">Buat Akun Baru</DialogTitle>
+              <DialogDescription className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                Isi data diri Anda untuk mendaftar
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="space-y-4 py-4">
+              <div className="space-y-1.5">
+                <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 ml-3">Nama Lengkap</Label>
+                <Input 
+                  value={registerData.fullName}
+                  onChange={(e) => setRegisterData(prev => ({ ...prev, fullName: e.target.value }))}
+                  className="rounded-xl h-12 border-slate-100 bg-slate-50/50 px-5 font-bold"
+                  placeholder="NAMA LENGKAP"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 ml-3">Team</Label>
+                <Select 
+                  value={registerData.team} 
+                  onValueChange={(val) => setRegisterData(prev => ({ ...prev, team: val }))}
+                >
+                  <SelectTrigger className="rounded-xl h-12 border-slate-100 bg-slate-50/50 px-5 font-bold uppercase text-[10px]">
+                    <SelectValue placeholder="PILIH TEAM" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl border-slate-100 shadow-xl">
+                    {masterData.teams.map(team => (
+                      <SelectItem key={team} value={team} className="font-bold uppercase text-[10px] py-3">{team}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 ml-3">Username (Min 8 Karakter & 1 Angka)</Label>
+                <Input 
+                  value={registerData.username}
+                  onChange={(e) => setRegisterData(prev => ({ ...prev, username: e.target.value }))}
+                  className="rounded-xl h-12 border-slate-100 bg-slate-50/50 px-5 font-bold"
+                  placeholder="USERNAME"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 ml-3">Password (Min 8 Karakter Kombinasi)</Label>
+                <div className="relative">
+                  <Input 
+                    type={showPassword ? "text" : "password"}
+                    value={registerData.password}
+                    onChange={(e) => setRegisterData(prev => ({ ...prev, password: e.target.value }))}
+                    className="rounded-xl h-12 border-slate-100 bg-slate-50/50 px-5 pr-12 font-bold"
+                    placeholder="••••••••"
+                  />
+                  <button 
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-blue-600 transition-colors"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 ml-3">Konfirmasi Password</Label>
+                <div className="relative">
+                  <Input 
+                    type={showConfirmPassword ? "text" : "password"}
+                    value={registerData.confirmPassword}
+                    onChange={(e) => setRegisterData(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                    className="rounded-xl h-12 border-slate-100 bg-slate-50/50 px-5 pr-12 font-bold"
+                    placeholder="••••••••"
+                  />
+                  <button 
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-blue-600 transition-colors"
+                  >
+                    {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {loginError && <p className="text-red-500 text-[9px] font-bold uppercase text-center">{loginError}</p>}
+            </div>
+
+            <DialogFooter>
+              <Button 
+                onClick={handleRegister}
+                disabled={isSyncing}
+                className="w-full h-14 rounded-xl bg-blue-600 shadow-lg shadow-blue-100 font-black uppercase text-[10px] tracking-widest hover:bg-blue-700 transition-all"
+              >
+                {isSyncing ? "Mendaftarkan..." : "Daftar Sekarang"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }
@@ -1228,27 +1393,33 @@ export default function App() {
               </div>
 
               <div className="flex-1 px-4 py-6 space-y-1">
-                <Button 
-                  variant={currentView === "update" ? "secondary" : "ghost"} 
-                  className={cn("w-full justify-start rounded-xl h-11 font-bold uppercase text-[10px] tracking-wider", currentView === "update" && "bg-blue-50 text-blue-600")}
-                  onClick={() => setCurrentView("update")}
-                >
-                  <ClipboardList className="w-4 h-4 mr-3" /> Update Pekerjaan
-                </Button>
-                <Button 
-                  variant={currentView === "monitoring" ? "secondary" : "ghost"} 
-                  className={cn("w-full justify-start rounded-xl h-11 font-bold uppercase text-[10px] tracking-wider", currentView === "monitoring" && "bg-blue-50 text-blue-600")}
-                  onClick={() => setCurrentView("monitoring")}
-                >
-                  <LayoutIcon className="w-4 h-4 mr-3" /> Layout Persentase
-                </Button>
-                <Button 
-                  variant={currentView === "settings" ? "secondary" : "ghost"} 
-                  className={cn("w-full justify-start rounded-xl h-11 font-bold uppercase text-[10px] tracking-wider", currentView === "settings" && "bg-blue-50 text-blue-600")}
-                  onClick={() => setCurrentView("settings")}
-                >
-                  <Settings className="w-4 h-4 mr-3" /> Setting
-                </Button>
+                {(userRole === "master" || userRole === "admin" || userRole === "user") && (
+                  <Button 
+                    variant={currentView === "update" ? "secondary" : "ghost"} 
+                    className={cn("w-full justify-start rounded-xl h-11 font-bold uppercase text-[10px] tracking-wider", currentView === "update" && "bg-blue-50 text-blue-600")}
+                    onClick={() => setCurrentView("update")}
+                  >
+                    <ClipboardList className="w-4 h-4 mr-3" /> Update Pekerjaan
+                  </Button>
+                )}
+                {(userRole === "master" || userRole === "admin" || userRole === "view") && (
+                  <Button 
+                    variant={currentView === "monitoring" ? "secondary" : "ghost"} 
+                    className={cn("w-full justify-start rounded-xl h-11 font-bold uppercase text-[10px] tracking-wider", currentView === "monitoring" && "bg-blue-50 text-blue-600")}
+                    onClick={() => setCurrentView("monitoring")}
+                  >
+                    <LayoutIcon className="w-4 h-4 mr-3" /> Layout Persentase
+                  </Button>
+                )}
+                {(userRole === "master" || userRole === "admin") && (
+                  <Button 
+                    variant={currentView === "settings" ? "secondary" : "ghost"} 
+                    className={cn("w-full justify-start rounded-xl h-11 font-bold uppercase text-[10px] tracking-wider", currentView === "settings" && "bg-blue-50 text-blue-600")}
+                    onClick={() => setCurrentView("settings")}
+                  >
+                    <Settings className="w-4 h-4 mr-3" /> Setting
+                  </Button>
+                )}
               </div>
 
               <div className="p-6 border-t border-slate-100 mt-auto">
@@ -1310,7 +1481,7 @@ export default function App() {
               </Button>
             </div>
 
-            {currentView === "monitoring" && (
+            {currentView === "monitoring" && (userRole === "master" || userRole === "admin") && (
               <Button onClick={() => setIsAddingPanel(true)} className="bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl px-5 shadow-lg shadow-blue-200 transition-all active:scale-95">
                 <Plus className="w-4 h-4 mr-2" /> Add Panel
               </Button>
@@ -1516,15 +1687,17 @@ export default function App() {
 
                   {/* Save & Fullscreen */}
                   <div className="flex flex-col gap-1 shrink-0">
-                    <Button 
-                      onClick={handleSaveLayout} 
-                      disabled={isSyncing}
-                      size="icon"
-                      title="Save Layout"
-                      className="w-8 h-8 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-lg shadow-emerald-100 transition-all active:scale-95"
-                    >
-                      {isSyncing ? <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Settings2 className="w-3.5 h-3.5" />}
-                    </Button>
+                    {(userRole === "master" || userRole === "admin") && (
+                      <Button 
+                        onClick={handleSaveLayout} 
+                        disabled={isSyncing}
+                        size="icon"
+                        title="Save Layout"
+                        className="w-8 h-8 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-lg shadow-emerald-100 transition-all active:scale-95"
+                      >
+                        {isSyncing ? <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Settings2 className="w-3.5 h-3.5" />}
+                      </Button>
+                    )}
                     <Button 
                       variant="secondary"
                       size="icon"
@@ -1739,7 +1912,7 @@ export default function App() {
                         panel={panel} 
                         onEdit={setIsEditing} 
                         onDelete={deletePanel} 
-                        disabled={isLocked}
+                        disabled={isLocked || userRole === "view"}
                         zoom={zoom}
                         warehouse={selectedWarehouse}
                         theme={layoutTheme}
@@ -2147,27 +2320,29 @@ export default function App() {
                 </div>
               </div>
 
-              {/* URL Settings at bottom */}
-              <div className="mt-8 bg-white rounded-3xl border border-slate-100 p-6 flex items-center justify-between gap-6">
-                <div className="flex-1 space-y-1">
-                  <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">Google Apps Script URL</Label>
-                  <Input 
-                    value={appsScriptUrl}
-                    onChange={(e) => setAppsScriptUrl(e.target.value)}
-                    className="rounded-xl h-12 border-slate-100 bg-slate-50/50 px-4 font-bold text-xs"
-                    placeholder="https://script.google.com/macros/s/.../exec"
-                  />
+              {/* URL Settings at bottom - Master Only */}
+              {userRole === "master" && (
+                <div className="mt-8 bg-white rounded-3xl border border-slate-100 p-6 flex items-center justify-between gap-6">
+                  <div className="flex-1 space-y-1">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">Google Apps Script URL</Label>
+                    <Input 
+                      value={appsScriptUrl}
+                      onChange={(e) => setAppsScriptUrl(e.target.value)}
+                      className="rounded-xl h-12 border-slate-100 bg-slate-50/50 px-4 font-bold text-xs"
+                      placeholder="https://script.google.com/macros/s/.../exec"
+                    />
+                  </div>
+                  <Button 
+                    onClick={() => {
+                      localStorage.setItem("emt_apps_script_url", appsScriptUrl);
+                      handleInitData(appsScriptUrl);
+                    }}
+                    className="h-12 rounded-xl bg-slate-900 text-white px-8 font-black uppercase text-[10px] tracking-widest mt-5"
+                  >
+                    Save URL
+                  </Button>
                 </div>
-                <Button 
-                  onClick={() => {
-                    localStorage.setItem("emt_apps_script_url", appsScriptUrl);
-                    handleInitData(appsScriptUrl);
-                  }}
-                  className="h-12 rounded-xl bg-slate-900 text-white px-8 font-black uppercase text-[10px] tracking-widest mt-5"
-                >
-                  Save URL
-                </Button>
-              </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>

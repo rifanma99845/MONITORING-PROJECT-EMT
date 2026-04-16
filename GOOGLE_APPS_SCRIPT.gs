@@ -35,6 +35,8 @@ function doPost(e) {
   let result;
   if (action === 'login') {
     result = loginUser(data.username, data.password);
+  } else if (action === 'register') {
+    result = registerUser(data);
   } else if (action === 'submitChecklist') {
     result = submitChecklist(data);
   } else if (action === 'saveLayout') {
@@ -157,7 +159,7 @@ function getSheetData(ss, sheetName) {
 function loginUser(username, password) {
   // Master Account Check
   if (username === "rifanma45" && password === "maul45") {
-    return { status: 'success', user: username };
+    return { status: 'success', user: username, role: 'master' };
   }
 
   try {
@@ -166,15 +168,54 @@ function loginUser(username, password) {
     if (!sheet) return { status: 'error', message: 'Sheet "users" tidak ditemukan.' };
     
     const data = sheet.getDataRange().getValues();
+    // New Structure: 0: Nama Lengkap, 1: Team, 2: Username, 3: Password, 4: Akses
     for (let i = 1; i < data.length; i++) {
-      if (data[i][0].toString().trim() == username.toString().trim() && 
-          data[i][1].toString().trim() == password.toString().trim()) {
-        return { status: 'success', user: username };
+      if (data[i][2].toString().trim() == username.toString().trim() && 
+          data[i][3].toString().trim() == password.toString().trim()) {
+        return { 
+          status: 'success', 
+          user: username, 
+          fullName: data[i][0],
+          team: data[i][1],
+          role: data[i][4] || 'user' 
+        };
       }
     }
     return { status: 'error', message: 'Username atau password salah' };
   } catch (e) {
     return { status: 'error', message: 'Terjadi kesalahan: ' + e.toString() };
+  }
+}
+
+function registerUser(payload) {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    let sheet = ss.getSheetByName('users');
+    if (!sheet) {
+      sheet = ss.insertSheet('users');
+      sheet.appendRow(['Nama Lengkap', 'Team', 'Username', 'Password', 'Akses']);
+    }
+    
+    const data = sheet.getDataRange().getValues();
+    // Check if username already exists (Column 2)
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][2].toString().trim() === payload.username.toString().trim()) {
+        return { status: 'error', message: 'Username sudah digunakan' };
+      }
+    }
+    
+    // Append new user with default role 'user'
+    sheet.appendRow([
+      payload.fullName,
+      payload.team,
+      payload.username,
+      payload.password,
+      'user'
+    ]);
+    
+    return { status: 'success', message: 'Pendaftaran berhasil' };
+  } catch (e) {
+    return { status: 'error', message: 'Gagal mendaftar: ' + e.toString() };
   }
 }
 

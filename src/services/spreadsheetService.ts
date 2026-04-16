@@ -62,11 +62,30 @@ export async function fetchAppData(url: string): Promise<AppConfig> {
   }
 }
 
-export async function loginUser(url: string, credentials: { username: string; password: string }): Promise<{ status: string; user?: string; message?: string }> {
+export async function loginUser(url: string, credentials: { username: string; password: string }): Promise<{ 
+  status: string; 
+  user?: string; 
+  role?: string; 
+  fullName?: string;
+  team?: string;
+  message?: string 
+}> {
   try {
     const response = await fetch(url, {
       method: 'POST',
       body: JSON.stringify({ action: 'login', ...credentials }),
+    });
+    return await response.json();
+  } catch (error) {
+    return { status: 'error', message: 'Connection failed' };
+  }
+}
+
+export async function registerUser(url: string, payload: any): Promise<{ status: string; message?: string }> {
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      body: JSON.stringify({ action: 'register', ...payload }),
     });
     return await response.json();
   } catch (error) {
