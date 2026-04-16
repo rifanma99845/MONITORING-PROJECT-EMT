@@ -44,26 +44,35 @@ function doGet(e) {
 }
 
 function doPost(e) {
-  const data = JSON.parse(e.postData.contents);
-  const action = data.action;
-  
-  let result;
-  if (action === 'login') {
-    result = loginUser(data.username, data.password);
-  } else if (action === 'register') {
-    result = registerUser(data);
-  } else if (action === 'submitChecklist') {
-    result = submitChecklist(data);
-  } else if (action === 'saveLayout') {
-    result = saveLayout(data.layout);
-  } else if (action === 'updateMasterData') {
-    result = saveMasterData(data.masterData);
-  } else if (action === 'submitUpdateHistory') {
-    result = submitUpdateHistory(data);
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000); // Wait up to 30 seconds for lock
+    const data = JSON.parse(e.postData.contents);
+    const action = data.action;
+    
+    let result;
+    if (action === 'login') {
+      result = loginUser(data.username, data.password);
+    } else if (action === 'register') {
+      result = registerUser(data);
+    } else if (action === 'submitChecklist') {
+      result = submitChecklist(data);
+    } else if (action === 'saveLayout') {
+      result = saveLayout(data.layout);
+    } else if (action === 'updateMasterData') {
+      result = saveMasterData(data.masterData);
+    } else if (action === 'submitUpdateHistory') {
+      result = submitUpdateHistory(data);
+    }
+    
+    return ContentService.createTextOutput(JSON.stringify(result))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (e) {
+    return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Server busy: ' + e.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } finally {
+    lock.releaseLock();
   }
-  
-  return ContentService.createTextOutput(JSON.stringify(result))
-    .setMimeType(ContentService.MimeType.JSON);
 }
 
 function getAppData() {

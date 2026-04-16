@@ -24,7 +24,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Plus, Undo, Redo, Trash2, Edit2, Settings2, Maximize2, Minimize2, Menu, Layout as LayoutIcon, ClipboardList, Settings, Search, Check, Send, Lock, Unlock, ChevronRight, ChevronLeft, X, Sun, Moon, BarChart3, Activity, Eye, EyeOff } from "lucide-react";
+import { Plus, Undo, Redo, Trash2, Edit2, Settings2, Maximize2, Minimize2, Menu, Layout as LayoutIcon, ClipboardList, Settings, Search, Check, Send, Lock, Unlock, ChevronRight, ChevronLeft, X, Sun, Moon, BarChart3, Activity, Eye, EyeOff, RefreshCw } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Sheet,
@@ -210,6 +210,7 @@ export default function App() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
 
   useEffect(() => {
     if (user) setHistoryUserName(user);
@@ -909,6 +910,7 @@ export default function App() {
         
         setPanels(panelsWithProgress);
       }
+      setLastSyncTime(new Date());
     } catch (error) {
       console.error("Failed to initialize data:", error);
       setSyncError("Gagal sinkronisasi data. Periksa koneksi atau URL Apps Script.");
@@ -919,7 +921,16 @@ export default function App() {
 
   useEffect(() => {
     const url = appsScriptUrl;
-    if (url) handleInitData(url);
+    if (url) {
+      handleInitData(url);
+      
+      // Auto-refresh every 30 seconds for multi-device sync
+      const interval = setInterval(() => {
+        handleInitData(url);
+      }, 30000);
+      
+      return () => clearInterval(interval);
+    }
   }, [handleInitData, appsScriptUrl]);
 
   const handleLogin = async () => {
@@ -1471,9 +1482,14 @@ export default function App() {
                currentView === "update" ? "Update Pekerjaan" : 
                currentView === "executive" ? "Executive Dashboard" : "Setting"}
             </h1>
-            {syncError && (
+            {syncError ? (
               <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-red-50 text-red-600 text-[8px] font-black uppercase tracking-tighter animate-pulse border border-red-100">
                 <Activity className="w-2.5 h-2.5" /> Sync Error
+              </div>
+            ) : lastSyncTime && (
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-slate-50 text-slate-400 text-[8px] font-bold uppercase tracking-tighter border border-slate-100">
+                <RefreshCw className={cn("w-2.5 h-2.5", isSyncing && "animate-spin")} />
+                Sync: {lastSyncTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
               </div>
             )}
           </div>
