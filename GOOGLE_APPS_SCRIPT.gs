@@ -181,9 +181,13 @@ function getSheetData(ss, sheetName) {
 }
 
 function loginUser(username, password) {
-  // Master Account Check
-  if (username === "rifanma45" && password === "maul45") {
-    return { status: 'success', user: username, role: 'master' };
+  // Master Account Check (Exact match for security)
+  if (username.toString().trim() === "rifanma45" && password === "maul45") {
+    return { status: 'success', user: "rifanma45", role: 'master' };
+  }
+
+  if (!SPREADSHEET_ID) {
+    return { status: 'error', message: 'Script tidak terikat dengan Spreadsheet.' };
   }
 
   try {
@@ -192,13 +196,17 @@ function loginUser(username, password) {
     if (!sheet) return { status: 'error', message: 'Sheet "users" tidak ditemukan.' };
     
     const data = sheet.getDataRange().getValues();
-    // New Structure: 0: Nama Lengkap, 1: Team, 2: Username, 3: Password, 4: Akses
+    const inputUser = username.toString().trim();
+    const inputPass = password.toString().trim();
+
     for (let i = 1; i < data.length; i++) {
-      if (data[i][2].toString().trim() == username.toString().trim() && 
-          data[i][3].toString().trim() == password.toString().trim()) {
+      const dbUser = data[i][2].toString().trim();
+      const dbPass = data[i][3].toString().trim();
+
+      if (dbUser === inputUser && dbPass === inputPass) {
         return { 
           status: 'success', 
-          user: username, 
+          user: data[i][2].toString().trim(), 
           fullName: data[i][0],
           team: data[i][1],
           role: data[i][4] || 'user' 
@@ -207,7 +215,7 @@ function loginUser(username, password) {
     }
     return { status: 'error', message: 'Username atau password salah' };
   } catch (e) {
-    return { status: 'error', message: 'Terjadi kesalahan: ' + e.toString() };
+    return { status: 'error', message: 'Database Error: ' + e.toString() };
   }
 }
 

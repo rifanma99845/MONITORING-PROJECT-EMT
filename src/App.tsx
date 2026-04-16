@@ -611,7 +611,7 @@ export default function App() {
   const [appsScriptUrl, setAppsScriptUrl] = useState<string>(() => 
     localStorage.getItem("emt_apps_script_url") || 
     (import.meta as any).env?.VITE_APPS_SCRIPT_URL || 
-    "https://script.google.com/macros/s/AKfycbx1Sh54121UlLX9lNHPX43_AxYSXIOdiU7KoQrYH4Eyi3230drokGDEyf9l57n3YDTC/exec"
+    "https://script.google.com/macros/s/AKfycbzmMBmS5dQpqgyIuSPeA5G2EXOpCAX3xIQvMCMGTLmPwLb0j-9ozaIXJzsqiB7pGjtX/exec"
   );
 
   // Debug state for master
