@@ -208,6 +208,7 @@ export default function App() {
   const [registerData, setRegisterData] = useState({ fullName: "", team: "", username: "", password: "", confirmPassword: "" });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   useEffect(() => {
     if (user) setHistoryUserName(user);
@@ -589,7 +590,10 @@ export default function App() {
   const [newPanelForm, setNewPanelForm] = useState({ project: "", name: "", code: "" });
   
   // Master Data from Spreadsheet
-  const [masterData, setMasterData] = useState<MasterData>({ projects: [], teams: [] });
+  const [masterData, setMasterData] = useState<MasterData>({ 
+    projects: [], 
+    teams: ["FABRIKASI", "WIRING", "BUSBAR"] 
+  });
   const [pengerjaanData, setPengerjaanData] = useState<PengerjaanItem[]>([]);
   const [statusChecklist, setStatusChecklist] = useState<StatusChecklist[]>([]);
   
@@ -600,8 +604,13 @@ export default function App() {
   const [selectedBagianKerja, setSelectedBagianKerja] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [pendingChecklist, setPendingChecklist] = useState<string[]>([]);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [appsScriptUrl, setAppsScriptUrl] = useState<string>(() => localStorage.getItem("emt_apps_script_url") || "https://script.google.com/macros/s/AKfycbx1Sh54121UlLX9lNHPX43_AxYSXIOdiU7KoQrYH4Eyi3230drokGDEyf9l57n3YDTC/exec");
+
+  // Apps Script URL Configuration
+  const [appsScriptUrl, setAppsScriptUrl] = useState<string>(() => 
+    localStorage.getItem("emt_apps_script_url") || 
+    (import.meta as any).env?.VITE_APPS_SCRIPT_URL || 
+    "https://script.google.com/macros/s/AKfycbx1Sh54121UlLX9lNHPX43_AxYSXIOdiU7KoQrYH4Eyi3230drokGDEyf9l57n3YDTC/exec"
+  );
 
   // Settings UI States
   const [settingsSelectedProject, setSettingsSelectedProject] = useState("");
