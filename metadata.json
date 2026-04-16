@@ -1,0 +1,5 @@
+{
+  "name": "Monitoring Project EMT",
+  "description": "A real-time monitoring application for EMT projects, featuring a draggable panel layout with fabrication, wiring, and busbar progress tracking.",
+  "requestFramePermissions": []
+}
