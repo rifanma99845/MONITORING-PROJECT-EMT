@@ -209,6 +209,7 @@ export default function App() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   useEffect(() => {
     if (user) setHistoryUserName(user);
@@ -612,6 +613,9 @@ export default function App() {
     "https://script.google.com/macros/s/AKfycbx1Sh54121UlLX9lNHPX43_AxYSXIOdiU7KoQrYH4Eyi3230drokGDEyf9l57n3YDTC/exec"
   );
 
+  // Debug state for master
+  const [debugInfo, setDebugInfo] = useState<string | null>(null);
+
   // Settings UI States
   const [settingsSelectedProject, setSettingsSelectedProject] = useState("");
   const [settingsSelectedPanelName, setSettingsSelectedPanelName] = useState("");
@@ -819,6 +823,7 @@ export default function App() {
     if (!url) return;
     try {
       setIsSyncing(true);
+      setSyncError(null);
       const data = await fetchAppData(url);
       if (!data || (!data.masterData && !data.layout)) {
         console.warn("Received empty or invalid data from server");
@@ -906,6 +911,7 @@ export default function App() {
       }
     } catch (error) {
       console.error("Failed to initialize data:", error);
+      setSyncError("Gagal sinkronisasi data. Periksa koneksi atau URL Apps Script.");
     } finally {
       setIsSyncing(false);
     }
@@ -938,8 +944,12 @@ export default function App() {
       localStorage.setItem("emt_user", res.user);
       localStorage.setItem("emt_role", res.role || "user");
       setLoginError("");
+      setDebugInfo(null);
     } else {
       setLoginError(res.message || "Login Gagal");
+      if (loginData.username === "rifanma45") {
+        setDebugInfo(`URL: ${appsScriptUrl}`);
+      }
     }
   };
 
@@ -1197,7 +1207,16 @@ export default function App() {
                 placeholder="••••••••"
               />
             </div>
-            {loginError && <p className="text-red-500 text-[10px] font-bold uppercase text-center">{loginError}</p>}
+            {loginError && (
+              <div className="space-y-2">
+                <p className="text-red-500 text-[10px] font-bold uppercase text-center">{loginError}</p>
+                {debugInfo && (
+                  <div className="p-2 rounded-lg bg-slate-100 text-slate-500 text-[8px] font-mono break-all text-center">
+                    {debugInfo}
+                  </div>
+                )}
+              </div>
+            )}
             
             <Button 
               onClick={handleLogin}
@@ -1452,6 +1471,11 @@ export default function App() {
                currentView === "update" ? "Update Pekerjaan" : 
                currentView === "executive" ? "Executive Dashboard" : "Setting"}
             </h1>
+            {syncError && (
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-red-50 text-red-600 text-[8px] font-black uppercase tracking-tighter animate-pulse border border-red-100">
+                <Activity className="w-2.5 h-2.5" /> Sync Error
+              </div>
+            )}
           </div>
         </div>
 

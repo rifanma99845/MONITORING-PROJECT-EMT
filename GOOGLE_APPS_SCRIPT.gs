@@ -14,14 +14,29 @@
  * 10. Paste the URL into the app's Settings.
  */
 
-const SPREADSHEET_ID = SpreadsheetApp.getActiveSpreadsheet().getId();
+const SPREADSHEET_ID = SpreadsheetApp.getActiveSpreadsheet() ? SpreadsheetApp.getActiveSpreadsheet().getId() : null;
 
 function doGet(e) {
   const action = e.parameter.action;
   
   if (action === 'init') {
+    if (!SPREADSHEET_ID) {
+      return ContentService.createTextOutput(JSON.stringify({ 
+        status: 'error', 
+        message: 'Script tidak terikat dengan Spreadsheet. Gunakan Extensions > Apps Script di dalam Google Sheet.' 
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
     return ContentService.createTextOutput(JSON.stringify(getAppData()))
       .setMimeType(ContentService.MimeType.JSON);
+  }
+  
+  if (action === 'test') {
+    return ContentService.createTextOutput(JSON.stringify({ 
+      status: 'success', 
+      message: 'Koneksi berhasil!', 
+      spreadsheetId: SPREADSHEET_ID,
+      user: Session.getActiveUser().getEmail()
+    })).setMimeType(ContentService.MimeType.JSON);
   }
   
   return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: 'Invalid action' }))

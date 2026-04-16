@@ -47,7 +47,12 @@ export interface AppConfig {
 
 export async function fetchAppData(url: string): Promise<AppConfig> {
   try {
-    const response = await fetch(`${url}?action=init`);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+
+    const response = await fetch(`${url}?action=init`, { signal: controller.signal });
+    clearTimeout(timeoutId);
+
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
     const data = await response.json();
     return {
@@ -71,25 +76,51 @@ export async function loginUser(url: string, credentials: { username: string; pa
   message?: string 
 }> {
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
     const response = await fetch(url, {
       method: 'POST',
       body: JSON.stringify({ action: 'login', ...credentials }),
+      signal: controller.signal
     });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      return { status: 'error', message: `Server Error (${response.status}). Pastikan URL Apps Script benar.` };
+    }
+
     return await response.json();
   } catch (error) {
-    return { status: 'error', message: 'Connection failed' };
+    if (error instanceof Error && error.name === 'AbortError') {
+      return { status: 'error', message: 'Koneksi lambat (Timeout). Silakan coba lagi.' };
+    }
+    return { status: 'error', message: 'Gagal menghubungi server. Periksa URL Apps Script di Settings.' };
   }
 }
 
 export async function registerUser(url: string, payload: any): Promise<{ status: string; message?: string }> {
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
     const response = await fetch(url, {
       method: 'POST',
       body: JSON.stringify({ action: 'register', ...payload }),
+      signal: controller.signal
     });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      return { status: 'error', message: `Server Error (${response.status}).` };
+    }
+
     return await response.json();
   } catch (error) {
-    return { status: 'error', message: 'Connection failed' };
+    if (error instanceof Error && error.name === 'AbortError') {
+      return { status: 'error', message: 'Koneksi lambat (Timeout).' };
+    }
+    return { status: 'error', message: 'Gagal menghubungi server.' };
   }
 }
 
