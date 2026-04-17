@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, forwardRef } from "react";
 import { 
   DndContext, 
   useDraggable, 
@@ -46,10 +46,271 @@ import { fetchAppData, loginUser, registerUser, saveLayout, submitChecklist, upd
 
 // --- Components ---
 
+// --- Components ---
+
+/**
+ * Executive View Component (Stand-alone to prevent re-mounting flickers)
+ */
+const ExecutiveView = forwardRef(({ 
+  panels, 
+  isToolbarCollapsed, 
+  setIsToolbarCollapsed,
+  layoutTheme,
+  setLayoutTheme,
+  zoomPercent,
+  setZoomPercent,
+  handleZoomHold,
+  stopZoom,
+  isFullScreen,
+  toggleFullScreen,
+  lastSyncTime
+}: any, ref: React.Ref<HTMLDivElement>) => {
+  const w1Summary = panels.filter((p: any) => p.warehouse === "Warehouse 1");
+  const w2Summary = panels.filter((p: any) => p.warehouse === "Warehouse 2");
+
+  const calculateSummary = (warehousePanels: any[]) => {
+    if (warehousePanels.length === 0) return { total: 0, teams: {} as Record<string, number> };
+    const teamTotals: Record<string, number> = {};
+    const teamCounts: Record<string, number> = {};
+    let grandTotal = 0;
+
+    warehousePanels.forEach(panel => {
+      grandTotal += calculateTotalProgress(panel);
+      Object.entries(panel.progress).forEach(([team, value]) => {
+        const val = value as number;
+        teamTotals[team] = (teamTotals[team] || 0) + val;
+        teamCounts[team] = (teamCounts[team] || 0) + 1;
+      });
+    });
+
+    const averageTotal = Math.round(grandTotal / (warehousePanels.length || 1));
+    const teamAverages: Record<string, number> = {};
+    Object.keys(teamTotals).forEach(team => {
+      teamAverages[team] = Math.round(teamTotals[team] / (teamCounts[team] || 1));
+    });
+    return { total: averageTotal, teams: teamAverages };
+  };
+
+  const s1 = calculateSummary(w1Summary);
+  const s2 = calculateSummary(w2Summary);
+
+  return (
+    <motion.div 
+      ref={ref}
+      key="executive"
+      initial={{ opacity: 0, scale: 0.98 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.98 }}
+      className={cn("w-full max-w-7xl min-h-[80vh] rounded-[48px] border shadow-2xl overflow-hidden relative p-10 flex flex-col gap-10", layoutTheme === "dark" ? "bg-[#020617] border-slate-800" : "bg-white border-slate-200", isFullScreen && "fixed inset-0 z-[100] rounded-none p-10 overflow-auto")}
+    >
+      {/* Collapsible Executive Toolbar */}
+      <motion.div 
+        initial={false}
+        animate={{ x: isToolbarCollapsed ? 48 : 0 }}
+        className="absolute right-0 top-1/2 -translate-y-1/2 z-[60] flex items-center"
+      >
+        <Button 
+          variant="secondary" 
+          size="icon" 
+          onClick={() => setIsToolbarCollapsed(!isToolbarCollapsed)}
+          className={cn(
+            "w-6 h-14 rounded-l-xl bg-slate-900 border border-slate-800 shadow-xl hover:bg-slate-900 z-10 -mr-[1px] transition-all",
+            isToolbarCollapsed ? "opacity-100" : "opacity-80 hover:opacity-100"
+          )}
+        >
+          {isToolbarCollapsed ? <ChevronLeft className="w-3 h-3 text-cyan-400" /> : <ChevronRight className="w-3 h-3 text-cyan-400" />}
+        </Button>
+
+        <div className={cn("border rounded-l-2xl p-1.5 shadow-2xl flex flex-col items-center gap-2 w-11", layoutTheme === "dark" ? "bg-slate-900 border-slate-800" : "bg-slate-50 border-slate-200")}>
+          {/* Theme Toggle */}
+          <Button 
+            variant="ghost"
+            size="icon"
+            onClick={() => setLayoutTheme(layoutTheme === "dark" ? "light" : "dark")}
+            className={cn("w-8 h-8 rounded-lg transition-all", layoutTheme === "dark" ? "text-cyan-400 hover:bg-cyan-400/10" : "text-slate-600 hover:bg-slate-200")}
+          >
+            {layoutTheme === "dark" ? <Moon className="w-3.5 h-3.5" /> : <Sun className="w-3.5 h-3.5" />}
+          </Button>
+
+          <div className={cn("w-6 h-[1px]", layoutTheme === "dark" ? "bg-slate-800" : "bg-slate-200")} />
+
+          {/* Zoom Controls */}
+          <div className="flex flex-col gap-1">
+            <Button 
+              variant="ghost" 
+
+              size="icon" 
+              className={cn("h-8 w-8 rounded-lg select-none", layoutTheme === "dark" ? "text-slate-400 hover:text-cyan-400 hover:bg-cyan-400/10" : "text-slate-600 hover:bg-slate-200")}
+              onMouseDown={() => handleZoomHold(1)}
+              onMouseUp={stopZoom}
+              onMouseLeave={stopZoom}
+              onContextMenu={(e) => e.preventDefault()}
+              onTouchStart={() => handleZoomHold(1)}
+              onTouchEnd={stopZoom}
+              title="Zoom In"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </Button>
+            <div className="flex flex-col items-center py-1">
+              <span className={cn("text-[8px] font-black", layoutTheme === "dark" ? "text-cyan-400" : "text-slate-900")}>{zoomPercent}%</span>
+            </div>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className={cn("h-8 w-8 rounded-lg select-none", layoutTheme === "dark" ? "text-slate-400 hover:text-cyan-400 hover:bg-cyan-400/10" : "text-slate-600 hover:bg-slate-200")}
+              onMouseDown={() => handleZoomHold(-1)}
+              onMouseUp={stopZoom}
+              onMouseLeave={stopZoom}
+              onContextMenu={(e) => e.preventDefault()}
+              onTouchStart={() => handleZoomHold(-1)}
+              onTouchEnd={stopZoom}
+              title="Zoom Out"
+            >
+              <div className="w-2.5 h-0.5 bg-current rounded-full" />
+            </Button>
+            <Button 
+              variant="ghost"
+              size="icon"
+              onClick={() => setZoomPercent(0)}
+              className={cn("w-8 h-8 rounded-lg", layoutTheme === "dark" ? "text-slate-500 hover:text-cyan-400" : "text-slate-600 hover:bg-slate-200")}
+            >
+              <Search className="w-3 h-3" />
+            </Button>
+          </div>
+
+          <div className={cn("w-6 h-[1px]", layoutTheme === "dark" ? "bg-slate-800" : "bg-slate-200")} />
+
+          {/* Fullscreen */}
+          <Button 
+            variant="ghost"
+            size="icon"
+            onClick={toggleFullScreen}
+            className={cn("w-8 h-8 rounded-lg", layoutTheme === "dark" ? "text-slate-400 hover:text-cyan-400 hover:bg-cyan-400/10" : "text-slate-600 hover:bg-slate-200")}
+          >
+            {isFullScreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+          </Button>
+        </div>
+      </motion.div>
+
+      {/* Content Wrapper with Zoom */}
+      <div 
+        className="flex-1 flex flex-col gap-12 transition-transform duration-200"
+        style={{ 
+          transform: `scale(${1 + (zoomPercent / 100) * 0.5})`,
+          transformOrigin: "center top"
+        }}
+      >
+        {/* Cyberpunk Grid Background */}
+        <div className="absolute inset-0 opacity-10 pointer-events-none" 
+             style={{ backgroundImage: 'radial-gradient(#22d3ee 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
+        
+        {/* Header */}
+      <div className="flex items-end justify-between relative z-10">
+        <div>
+          <div className="flex items-center gap-3 mb-2">
+            <Activity className="w-6 h-6 text-cyan-400" />
+            <span className="text-cyan-400 font-black tracking-[0.4em] uppercase text-xs">System Status: Active</span>
+          </div>
+          <h2 className={cn("text-5xl font-black uppercase tracking-tighter", layoutTheme === "dark" ? "text-white" : "text-slate-900")}>
+            Executive Dashboard
+          </h2>
+        </div>
+        <div className="text-right">
+          <p className="text-slate-500 font-mono text-xs uppercase tracking-widest">Last Sync: {lastSyncTime ? lastSyncTime.toLocaleTimeString() : "Pending"}</p>
+          <p className={cn("font-black text-lg uppercase tracking-tighter", layoutTheme === "dark" ? "text-slate-400" : "text-slate-600")}>EMT MONITORING v2.0</p>
+        </div>
+      </div>
+
+      {/* Main Stats */}
+      <div className="grid grid-cols-2 gap-8 relative z-10">
+        {[
+          { label: "Warehouse 1", data: s1, color: "from-cyan-500 to-blue-600", glow: "shadow-cyan-500/20", gradId: "grad1" },
+          { label: "Warehouse 2", data: s2, color: "from-magenta-500 to-purple-600", glow: "shadow-magenta-500/20", gradId: "grad2" }
+        ].map((wh, idx) => (
+          <div key={wh.label} className={cn("border rounded-[40px] p-8 flex flex-col gap-6 shadow-2xl", layoutTheme === "dark" ? "bg-slate-900 border-slate-800" : "bg-slate-50 border-slate-200")}>
+            <div className="flex items-center justify-between">
+              <h3 className={cn("text-2xl font-black uppercase tracking-tight", layoutTheme === "dark" ? "text-white" : "text-slate-900")}>{wh.label}</h3>
+            </div>
+
+            <div className="flex items-center gap-10">
+              <div className="relative w-44 h-44 flex items-center justify-center shrink-0">
+                <svg width="176" height="176" className="rotate-[-90deg]">
+                  <circle cx="88" cy="88" r="80" stroke={layoutTheme === "dark" ? "#ffffff03" : "#00000010"} strokeWidth="8" fill="transparent" />
+                  <motion.circle
+                    cx="88" cy="88" r="80" stroke={`url(#${wh.gradId})`} strokeWidth="8" fill="transparent"
+                    strokeDasharray={80 * 2 * Math.PI}
+                    initial={{ strokeDashoffset: 80 * 2 * Math.PI }}
+                    animate={{ strokeDashoffset: 80 * 2 * Math.PI - (wh.data.total / 100) * (80 * 2 * Math.PI) }}
+                    transition={{ duration: 2, ease: "circOut" }}
+                    strokeLinecap="round"
+                  />
+                  <defs>
+                    <linearGradient id={wh.gradId} x1="0%" y1="0%" x2="100%" y2="0%">
+                      <stop offset="0%" stopColor={idx === 0 ? "#22d3ee" : "#d946ef"} />
+                      <stop offset="100%" stopColor={idx === 0 ? "#2563eb" : "#9333ea"} />
+                    </linearGradient>
+                  </defs>
+                </svg>
+                <div className="absolute flex flex-col items-center">
+                  <span className={cn("text-4xl font-black tracking-tighter", layoutTheme === "dark" ? "text-white" : "text-slate-900")}>{wh.data.total}%</span>
+                  <span className="text-[8px] font-bold text-slate-500 uppercase tracking-widest mt-0.5">Total</span>
+                </div>
+              </div>
+
+              <div className="flex-1 grid grid-cols-2 gap-3">
+                {Object.entries(wh.data.teams).map(([team, val]) => (
+                  <div key={team} className={cn("rounded-xl p-3 flex flex-col gap-1 transition-colors border", layoutTheme === "dark" ? "bg-slate-950/40 border-slate-700 hover:bg-slate-900" : "bg-white border-slate-200 shadow-sm hover:bg-slate-50")}>
+                    <span className={cn("text-[9px] font-bold uppercase tracking-wider", layoutTheme === "dark" ? "text-slate-400" : "text-slate-600")}>{team}</span>
+                    <div className="flex items-baseline gap-1">
+                      <span className={cn("text-xl font-bold tracking-tighter", layoutTheme === "dark" ? "text-white" : "text-slate-950")}>{val}</span>
+                      <span className={cn("text-[10px] font-medium opacity-80", layoutTheme === "dark" ? "text-slate-500" : "text-slate-500")}>%</span>
+                    </div>
+                    <div className={cn("h-1.5 w-full rounded-full overflow-hidden mt-1", layoutTheme === "dark" ? "bg-slate-950" : "bg-slate-200")}>
+                      <motion.div 
+                        initial={{ width: 0 }}
+                        animate={{ width: `${val}%` }}
+                        transition={{ duration: 1 }}
+                        className={cn(
+                          "h-full rounded-full",
+                          val < 25 ? "bg-red-500" :
+                          val < 50 ? "bg-purple-500" :
+                          val < 90 ? "bg-blue-500" :
+                          "bg-emerald-500"
+                        )}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Footer Info */}
+      <div className="mt-auto flex items-center justify-between border-t border-slate-800 pt-8 relative z-10">
+        <div className="flex gap-8">
+          <div className="flex items-center gap-3">
+            <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Database Linked</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-2 h-2 rounded-full bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.6)]" />
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Real-time Stream</span>
+          </div>
+        </div>
+        <p className="text-[10px] font-black text-slate-600 uppercase tracking-[0.5em]">Cyber-Physical Monitoring Interface</p>
+      </div>
+    </div>
+  </motion.div>
+  );
+});
+
 interface PanelProps {
   panel: PanelData;
   onEdit: (panel: PanelData | null) => void;
   onDelete: (id: string) => void;
+  onMaximize: (panel: PanelData) => void;
   isOverlay?: boolean;
   disabled?: boolean;
   zoom: number;
@@ -58,7 +319,7 @@ interface PanelProps {
   scale: number;
 }
 
-const Panel: React.FC<PanelProps> = ({ panel, onEdit, onDelete, isOverlay, disabled, zoom, warehouse, theme = "dark", scale }) => {
+const Panel: React.FC<PanelProps> = ({ panel, onEdit, onDelete, onMaximize, isOverlay, disabled, zoom, warehouse, theme = "dark", scale }) => {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: panel.id,
     disabled: disabled
@@ -70,8 +331,10 @@ const Panel: React.FC<PanelProps> = ({ panel, onEdit, onDelete, isOverlay, disab
   } : undefined;
 
   const totalProgress = calculateTotalProgress(panel);
-  const isW1 = warehouse === "Warehouse 1";
   const isDark = theme === "dark";
+  
+  // User requested: Dark Mode -> White Panel, Light Mode -> Dark Panel
+  const panelIsLight = isDark; 
 
   return (
     <div
@@ -86,57 +349,49 @@ const Panel: React.FC<PanelProps> = ({ panel, onEdit, onDelete, isOverlay, disab
         transformOrigin: "top left"
       }}
       className={cn(
-        "rounded-xl border overflow-hidden select-none group transition-all panel-item",
-        isDark 
-          ? "bg-slate-900/80 backdrop-blur-md border-slate-800 shadow-[0_0_15px_rgba(0,0,0,0.5)]" 
-          : "bg-white border-slate-200 shadow-sm",
+        "rounded-2xl border overflow-hidden select-none group transition-all panel-item",
+        panelIsLight 
+          ? "bg-white border-slate-200 shadow-[0_10px_30px_rgba(0,0,0,0.1)]" 
+          : "bg-slate-900 border-slate-800 shadow-[0_10px_30px_rgba(0,0,0,0.5)]",
         !isDragging && "transition-all",
         isDragging && "z-[100] border-blue-600 shadow-none ring-0",
-        !isDragging && !disabled && (isDark ? "cursor-grab hover:shadow-[0_0_20px_rgba(37,99,235,0.2)] hover:border-blue-500/50" : "cursor-grab hover:shadow-xl hover:border-blue-200"),
+        !isDragging && !disabled && (panelIsLight ? "cursor-grab hover:shadow-2xl hover:border-blue-200" : "cursor-grab hover:shadow-[0_0_20px_rgba(37,99,235,0.2)] hover:border-blue-500/50"),
         disabled && "cursor-default"
       )}
       {...attributes}
       {...listeners}
     >
-      <div style={{ width: 200, height: 215 }}>
+      <div style={{ width: 220, height: 210 }}>
         {/* Header: Code & Name */}
-        <div className={cn("px-4 py-3 border-b relative transition-colors", isDark ? "bg-slate-950 border-slate-800" : "bg-slate-50 border-slate-200")}>
-        {isDark && (
-          <>
-            <div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-cyan-500/50" />
-            <div className="absolute top-0 right-0 w-2 h-2 border-t border-r border-cyan-500/50" />
-          </>
-        )}
-        <div className="flex justify-between items-center mb-1">
-          <span className={cn("text-[9px] font-black uppercase tracking-[0.2em] transition-colors", isDark ? "text-cyan-400" : "text-blue-600")}>{panel.code}</span>
-          <div className={cn(
-            "w-2 h-2 rounded-full animate-pulse transition-all",
-            totalProgress === 100 ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" : (isDark ? "bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.5)]" : "bg-blue-600")
-          )} />
-        </div>
-        <h3 className={cn("text-[11px] font-black truncate leading-tight uppercase tracking-tight transition-colors", isDark ? "text-white" : "text-slate-900")}>{panel.name}</h3>
+        <div className={cn("px-5 pt-1 pb-0 relative transition-colors", panelIsLight ? "bg-slate-50" : "bg-slate-950")}>
+          <div className="flex justify-between items-center mb-1">
+            <div className={cn("px-2 py-0.5 rounded-md font-black uppercase tracking-widest text-[13px]", panelIsLight ? "bg-blue-600 text-white" : "bg-cyan-500 text-slate-950")}>
+              {panel.code}
+            </div>
+            <div className={cn(
+              "w-3 h-3 rounded-full transition-all",
+              totalProgress === 100 ? "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]" : (panelIsLight ? "bg-blue-600 shadow-[0_0_10px_rgba(37,99,235,0.3)]" : "bg-cyan-500 shadow-[0_0_10px_rgba(6,182,212,0.5)]")
+            )} />
+          </div>
+          <div className={cn("font-black truncate leading-none uppercase tracking-tighter text-[28px]", panelIsLight ? "text-slate-900" : "text-white")}>
+            {panel.name}
+          </div>
         </div>
       
         {/* Progress Grid */}
-        <div className={cn("p-4 space-y-3 relative transition-colors", isDark ? "bg-slate-900/50" : "bg-white")}>
-          {isDark && (
-            <>
-              <div className="absolute bottom-0 left-0 w-2 h-2 border-b border-l border-cyan-500/50" />
-              <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-cyan-500/50" />
-            </>
-          )}
-          <div className="space-y-1.5">
-            <div className="flex justify-between text-[9px] font-black uppercase tracking-widest">
-              <span className={cn("transition-colors", isDark ? "text-slate-500" : "text-slate-800")}>Progress</span>
-              <span className={cn("transition-colors", isDark ? "text-cyan-400" : "text-blue-700")}>{totalProgress}%</span>
+        <div className={cn("px-5 pt-0 pb-3 space-y-2 relative transition-colors", panelIsLight ? "bg-white" : "bg-slate-900")}>
+          <div className="space-y-1">
+            <div className="flex justify-between text-[11px] font-black uppercase tracking-widest">
+              <span className={cn(panelIsLight ? "text-slate-700" : "text-slate-300")}>Overall Progress</span>
+              <span className={cn("text-[13px]", panelIsLight ? "text-blue-800" : "text-cyan-400")}>{totalProgress}%</span>
             </div>
-            <div className={cn("h-2 w-full rounded-full overflow-hidden p-0.5 transition-colors", isDark ? "bg-slate-950" : "bg-slate-100")}>
+            <div className={cn("h-3 w-full rounded-full overflow-hidden p-0.5", panelIsLight ? "bg-slate-200" : "bg-slate-950")}>
               <motion.div 
                 initial={{ width: 0 }}
                 animate={{ width: `${totalProgress}%` }}
                 className={cn(
-                  "h-full rounded-full transition-colors",
-                  totalProgress === 100 ? "bg-emerald-500" : (isDark ? "bg-cyan-600" : "bg-blue-600")
+                  "h-full rounded-full",
+                  totalProgress === 100 ? "bg-emerald-500" : (panelIsLight ? "bg-blue-600" : "bg-cyan-600")
                 )}
               />
             </div>
@@ -153,27 +408,27 @@ const Panel: React.FC<PanelProps> = ({ panel, onEdit, onDelete, isOverlay, disab
               let valClass = "text-blue-900";
 
               if (team.toUpperCase() === "FABRIKASI") {
-                colorClass = isDark ? "bg-blue-950/30 border-blue-900/50" : "bg-blue-50/50 border-blue-100/50";
-                textClass = isDark ? "text-blue-400" : "text-blue-600";
-                valClass = isDark ? "text-white" : "text-blue-900";
+                colorClass = panelIsLight ? "bg-blue-50 border-blue-100" : "bg-blue-950/30 border-blue-900/50";
+                textClass = panelIsLight ? "text-blue-600" : "text-blue-400";
+                valClass = panelIsLight ? "text-blue-950" : "text-white";
               } else if (team.toUpperCase() === "WIRING") {
-                colorClass = isDark ? "bg-emerald-950/30 border-emerald-900/50" : "bg-emerald-50/50 border-emerald-100/50";
-                textClass = isDark ? "text-emerald-400" : "text-emerald-600";
-                valClass = isDark ? "text-white" : "text-emerald-900";
+                colorClass = panelIsLight ? "bg-emerald-50 border-emerald-100" : "bg-emerald-950/30 border-emerald-900/50";
+                textClass = panelIsLight ? "text-emerald-600" : "text-emerald-400";
+                valClass = panelIsLight ? "text-emerald-950" : "text-white";
               } else if (team.toUpperCase() === "BUSBAR") {
-                colorClass = isDark ? "bg-amber-950/30 border-amber-900/50" : "bg-amber-50/50 border-amber-100/50";
-                textClass = isDark ? "text-amber-400" : "text-amber-600";
-                valClass = isDark ? "text-white" : "text-amber-900";
+                colorClass = panelIsLight ? "bg-amber-50 border-amber-100" : "bg-amber-950/30 border-amber-900/50";
+                textClass = panelIsLight ? "text-amber-600" : "text-amber-400";
+                valClass = panelIsLight ? "text-amber-950" : "text-white";
               } else if (team.toUpperCase() === "TAGGING") {
-                colorClass = isDark ? "bg-purple-950/30 border-purple-900/50" : "bg-purple-50/50 border-purple-100/50";
-                textClass = isDark ? "text-purple-400" : "text-purple-600";
-                valClass = isDark ? "text-white" : "text-purple-900";
+                colorClass = panelIsLight ? "bg-purple-50 border-purple-100" : "bg-purple-950/30 border-purple-900/50";
+                textClass = panelIsLight ? "text-purple-600" : "text-purple-400";
+                valClass = panelIsLight ? "text-purple-950" : "text-white";
               }
 
               return (
-                <div key={team} className={cn("flex flex-col items-center p-2 rounded-xl border transition-colors", colorClass)}>
-                  <span className={cn("text-[7px] font-black uppercase tracking-tighter transition-colors", textClass)}>{shortName}</span>
-                  <span className={cn("text-[10px] font-black transition-colors", valClass)}>{value}%</span>
+                <div key={team} className={cn("flex flex-col items-center py-1.5 px-2 rounded-xl border transition-all", colorClass)}>
+                  <span className={cn("text-[8px] font-black uppercase tracking-tight mb-0.5", textClass)}>{shortName}</span>
+                  <span className={cn("text-[18px] font-black leading-none", valClass)}>{value}%</span>
                 </div>
               );
             })}
@@ -182,13 +437,13 @@ const Panel: React.FC<PanelProps> = ({ panel, onEdit, onDelete, isOverlay, disab
       </div>
 
       {/* Hover Actions Overlay */}
-      <div className="absolute inset-0 bg-slate-900/5 backdrop-blur-[1px] opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center gap-2 pointer-events-none">
-        <div className={cn("p-2 rounded-2xl shadow-2xl border flex gap-1.5 pointer-events-auto scale-90 group-hover:scale-100 transition-transform", isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-100")}>
-          <Button variant="ghost" size="icon" className={cn("h-9 w-9 rounded-xl", isDark ? "text-slate-300 hover:bg-slate-700" : "text-slate-600 hover:bg-slate-50")} onClick={(e) => { e.stopPropagation(); onEdit(panel); }}>
-            <Edit2 className="h-4 w-4" />
+      <div className="absolute inset-0 bg-slate-900/10 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center gap-2 pointer-events-none">
+        <div className={cn("p-2 rounded-2xl shadow-2xl border flex gap-1.5 pointer-events-auto scale-90 group-hover:scale-100 transition-transform", panelIsLight ? "bg-white border-slate-100" : "bg-slate-800 border-slate-700")}>
+          <Button variant="ghost" size="icon" className={cn("h-10 w-10 rounded-xl", panelIsLight ? "text-slate-600 hover:bg-slate-50" : "text-slate-300 hover:bg-slate-700")} onClick={(e) => { e.stopPropagation(); onMaximize(panel); }}>
+            <Maximize2 className="h-5 w-5" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl text-red-500 hover:text-red-600 hover:bg-red-50" onClick={(e) => { e.stopPropagation(); onDelete(panel.id); }}>
-            <Trash2 className="h-4 w-4" />
+          <Button variant="ghost" size="icon" className="h-10 w-10 rounded-xl text-red-500 hover:text-red-600 hover:bg-red-50" onClick={(e) => { e.stopPropagation(); onDelete(panel.id); }}>
+            <Trash2 className="h-5 w-5" />
           </Button>
         </div>
       </div>
@@ -208,6 +463,7 @@ export default function App() {
   const [registerData, setRegisterData] = useState({ fullName: "", team: "", username: "", password: "", confirmPassword: "" });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
@@ -221,6 +477,7 @@ export default function App() {
   const [redoStack, setRedoStack] = useState<HistoryItem[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState<PanelData | null>(null);
+  const [maximizedPanel, setMaximizedPanel] = useState<PanelData | null>(null);
   const [layoutSize] = useState({ width: 3000, height: 1800 });
   const [baseZoom, setBaseZoom] = useState(0.32);
   const [zoom, setZoom] = useState(0.32);
@@ -283,16 +540,18 @@ export default function App() {
   const [isPanning, setIsPanning] = useState(false);
   const lastMousePos = useRef({ x: 0, y: 0 });
 
-  const PANEL_WIDTH = 200 * panelScale;
-  const PANEL_HEIGHT = 215 * panelScale;
+  const PANEL_WIDTH = 220 * panelScale;
+  const PANEL_HEIGHT = 210 * panelScale;
   const PANEL_PADDING = 20 * panelScale;
 
   const checkCollision = (pos1: { x: number, y: number }, pos2: { x: number, y: number }) => {
+    // Reduce padding to allow mepet (0px gap)
+    const padding = 1; 
     return !(
-      pos1.x + PANEL_WIDTH + PANEL_PADDING < pos2.x ||
-      pos1.x > pos2.x + PANEL_WIDTH + PANEL_PADDING ||
-      pos1.y + PANEL_HEIGHT + PANEL_PADDING < pos2.y ||
-      pos1.y > pos2.y + PANEL_HEIGHT + PANEL_PADDING
+      pos1.x + PANEL_WIDTH < pos2.x - padding ||
+      pos1.x > pos2.x + PANEL_WIDTH + padding ||
+      pos1.y + PANEL_HEIGHT < pos2.y - padding ||
+      pos1.y > pos2.y + PANEL_HEIGHT + padding
     );
   };
   
@@ -328,240 +587,6 @@ export default function App() {
 
   const summary = getWarehouseSummary();
 
-  const ExecutiveView = () => {
-    const w1Summary = panels.filter(p => p.warehouse === "Warehouse 1");
-    const w2Summary = panels.filter(p => p.warehouse === "Warehouse 2");
-
-    const calculateSummary = (warehousePanels: PanelData[]) => {
-      if (warehousePanels.length === 0) return { total: 0, teams: {} as Record<string, number> };
-      const teamTotals: Record<string, number> = {};
-      const teamCounts: Record<string, number> = {};
-      let grandTotal = 0;
-
-      warehousePanels.forEach(panel => {
-        grandTotal += calculateTotalProgress(panel);
-        Object.entries(panel.progress).forEach(([team, value]) => {
-          const val = value as number;
-          teamTotals[team] = (teamTotals[team] || 0) + val;
-          teamCounts[team] = (teamCounts[team] || 0) + 1;
-        });
-      });
-
-      const averageTotal = Math.round(grandTotal / (warehousePanels.length || 1));
-      const teamAverages: Record<string, number> = {};
-      Object.keys(teamTotals).forEach(team => {
-        teamAverages[team] = Math.round(teamTotals[team] / (teamCounts[team] || 1));
-      });
-      return { total: averageTotal, teams: teamAverages };
-    };
-
-    const s1 = calculateSummary(w1Summary);
-    const s2 = calculateSummary(w2Summary);
-
-    return (
-      <motion.div 
-        key="executive"
-        initial={{ opacity: 0, scale: 0.98 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.98 }}
-        className="w-full max-w-7xl min-h-[80vh] bg-[#020617] rounded-[48px] border border-slate-800 shadow-2xl overflow-hidden relative p-12 flex flex-col gap-12"
-      >
-        {/* Collapsible Executive Toolbar */}
-        <motion.div 
-          initial={false}
-          animate={{ x: isToolbarCollapsed ? 48 : 0 }}
-          className="absolute right-0 top-1/2 -translate-y-1/2 z-[60] flex items-center"
-        >
-          <Button 
-            variant="secondary" 
-            size="icon" 
-            onClick={() => setIsToolbarCollapsed(!isToolbarCollapsed)}
-            className={cn(
-              "w-6 h-14 rounded-l-xl bg-slate-900/90 backdrop-blur-md border border-slate-800 shadow-xl hover:bg-slate-900 z-10 -mr-[1px] transition-all",
-              isToolbarCollapsed ? "opacity-100" : "opacity-80 hover:opacity-100"
-            )}
-          >
-            {isToolbarCollapsed ? <ChevronLeft className="w-3 h-3 text-cyan-400" /> : <ChevronRight className="w-3 h-3 text-cyan-400" />}
-          </Button>
-
-          <div className="bg-slate-900/80 backdrop-blur-md border border-slate-800 rounded-l-2xl p-1.5 shadow-2xl flex flex-col items-center gap-2 w-11">
-            {/* Theme Toggle */}
-            <Button 
-              variant="ghost"
-              size="icon"
-              onClick={() => setLayoutTheme(layoutTheme === "dark" ? "light" : "dark")}
-              className={cn("w-8 h-8 rounded-lg transition-all", layoutTheme === "dark" ? "text-cyan-400 hover:bg-cyan-400/10" : "text-slate-400 hover:bg-slate-800")}
-            >
-              {layoutTheme === "dark" ? <Moon className="w-3.5 h-3.5" /> : <Sun className="w-3.5 h-3.5" />}
-            </Button>
-
-            <div className="w-6 h-[1px] bg-slate-800" />
-
-            {/* Zoom Controls */}
-            <div className="flex flex-col gap-1">
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-8 w-8 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-cyan-400/10 select-none"
-                onMouseDown={() => handleZoomHold(1)}
-                onMouseUp={stopZoom}
-                onMouseLeave={stopZoom}
-                onContextMenu={(e) => e.preventDefault()}
-                onTouchStart={() => handleZoomHold(1)}
-                onTouchEnd={stopZoom}
-                title="Zoom In"
-              >
-                <Plus className="w-3.5 h-3.5" />
-              </Button>
-              <div className="flex flex-col items-center py-1">
-                <span className="text-[8px] font-black text-cyan-400">{zoomPercent}%</span>
-              </div>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-8 w-8 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-cyan-400/10 select-none"
-                onMouseDown={() => handleZoomHold(-1)}
-                onMouseUp={stopZoom}
-                onMouseLeave={stopZoom}
-                onContextMenu={(e) => e.preventDefault()}
-                onTouchStart={() => handleZoomHold(-1)}
-                onTouchEnd={stopZoom}
-                title="Zoom Out"
-              >
-                <div className="w-2.5 h-0.5 bg-current rounded-full" />
-              </Button>
-              <Button 
-                variant="ghost"
-                size="icon"
-                onClick={() => setZoomPercent(0)}
-                className="w-8 h-8 rounded-lg text-slate-500 hover:text-cyan-400"
-              >
-                <Search className="w-3 h-3" />
-              </Button>
-            </div>
-
-            <div className="w-6 h-[1px] bg-slate-800" />
-
-            {/* Fullscreen */}
-            <Button 
-              variant="ghost"
-              size="icon"
-              onClick={toggleFullScreen}
-              className="w-8 h-8 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-cyan-400/10"
-            >
-              {isFullScreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-            </Button>
-          </div>
-        </motion.div>
-
-        {/* Content Wrapper with Zoom */}
-        <div 
-          className="flex-1 flex flex-col gap-12 transition-transform duration-200"
-          style={{ 
-            transform: `scale(${1 + (zoomPercent / 100) * 0.5})`,
-            transformOrigin: "center top"
-          }}
-        >
-          {/* Cyberpunk Grid Background */}
-          <div className="absolute inset-0 opacity-10 pointer-events-none" 
-               style={{ backgroundImage: 'radial-gradient(#22d3ee 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
-          
-          {/* Header */}
-        <div className="flex items-end justify-between relative z-10">
-          <div>
-            <div className="flex items-center gap-3 mb-2">
-              <Activity className="w-6 h-6 text-cyan-400 animate-pulse" />
-              <span className="text-cyan-400 font-black tracking-[0.4em] uppercase text-xs">System Status: Active</span>
-            </div>
-            <h2 className="text-5xl font-black text-white uppercase tracking-tighter">
-              Executive <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-magenta-500">Dashboard</span>
-            </h2>
-          </div>
-          <div className="text-right">
-            <p className="text-slate-500 font-mono text-xs uppercase tracking-widest">Last Sync: {new Date().toLocaleTimeString()}</p>
-            <p className="text-slate-400 font-black text-lg uppercase tracking-tighter">EMT MONITORING v2.0</p>
-          </div>
-        </div>
-
-        {/* Main Stats */}
-        <div className="grid grid-cols-2 gap-12 relative z-10">
-          {[
-            { label: "Warehouse 1", data: s1, color: "from-cyan-500 to-blue-600", glow: "shadow-cyan-500/20", gradId: "grad1" },
-            { label: "Warehouse 2", data: s2, color: "from-magenta-500 to-purple-600", glow: "shadow-magenta-500/20", gradId: "grad2" }
-          ].map((wh, idx) => (
-            <div key={wh.label} className={cn("bg-slate-900/50 border border-slate-800 rounded-[40px] p-10 backdrop-blur-xl flex flex-col gap-8 shadow-2xl", wh.glow)}>
-              <div className="flex items-center justify-between">
-                <h3 className="text-2xl font-black text-white uppercase tracking-tight">{wh.label}</h3>
-                <div className={cn("px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-gradient-to-r text-white", wh.color)}>
-                  Live Feed
-                </div>
-              </div>
-
-              <div className="flex items-center gap-12">
-                <div className="relative w-48 h-48 flex items-center justify-center">
-                  <svg width="192" height="192" className="rotate-[-90deg]">
-                    <circle cx="96" cy="96" r="88" stroke="#1e293b" strokeWidth="12" fill="transparent" />
-                    <motion.circle
-                      cx="96" cy="96" r="88" stroke={`url(#${wh.gradId})`} strokeWidth="12" fill="transparent"
-                      strokeDasharray={88 * 2 * Math.PI}
-                      initial={{ strokeDashoffset: 88 * 2 * Math.PI }}
-                      animate={{ strokeDashoffset: 88 * 2 * Math.PI - (wh.data.total / 100) * (88 * 2 * Math.PI) }}
-                      transition={{ duration: 2, ease: "circOut" }}
-                      strokeLinecap="round"
-                    />
-                    <defs>
-                      <linearGradient id={wh.gradId} x1="0%" y1="0%" x2="100%" y2="0%">
-                        <stop offset="0%" stopColor={idx === 0 ? "#22d3ee" : "#d946ef"} />
-                        <stop offset="100%" stopColor={idx === 0 ? "#2563eb" : "#9333ea"} />
-                      </linearGradient>
-                    </defs>
-                  </svg>
-                  <div className="absolute flex flex-col items-center">
-                    <span className="text-5xl font-black text-white">{wh.data.total}%</span>
-                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Progress</span>
-                  </div>
-                </div>
-
-                <div className="flex-1 grid grid-cols-2 gap-4">
-                  {Object.entries(wh.data.teams).map(([team, val]) => (
-                    <div key={team} className="bg-slate-950/50 border border-slate-800/50 rounded-2xl p-4 flex flex-col gap-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-tighter">{team}</span>
-                        <span className="text-xs font-black text-white">{val}%</span>
-                      </div>
-                      <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
-                        <motion.div 
-                          initial={{ width: 0 }}
-                          animate={{ width: `${val}%` }}
-                          className={cn("h-full rounded-full bg-gradient-to-r", wh.color)}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Footer Info */}
-        <div className="mt-auto flex items-center justify-between border-t border-slate-800 pt-8 relative z-10">
-          <div className="flex gap-8">
-            <div className="flex items-center gap-3">
-              <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Database Linked</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="w-2 h-2 rounded-full bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.6)]" />
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Real-time Stream</span>
-            </div>
-          </div>
-          <p className="text-[10px] font-black text-slate-600 uppercase tracking-[0.5em]">Cyber-Physical Monitoring Interface</p>
-        </div>
-      </div>
-    </motion.div>
-    );
-  };
 
   const OFFICE_AREA_W1 = {
     x: 2300,
@@ -594,7 +619,7 @@ export default function App() {
   // Master Data from Spreadsheet
   const [masterData, setMasterData] = useState<MasterData>({ 
     projects: [], 
-    teams: ["FABRIKASI", "WIRING", "BUSBAR"] 
+    teams: ["FABRIKASI", "WIRING", "BUSBAR", "TAGGING"] 
   });
   const [pengerjaanData, setPengerjaanData] = useState<PengerjaanItem[]>([]);
   const [statusChecklist, setStatusChecklist] = useState<StatusChecklist[]>([]);
@@ -948,19 +973,27 @@ export default function App() {
       setLoginError("Silakan masukkan URL Apps Script di Setting terlebih dahulu");
       return;
     }
-    const res = await loginUser(appsScriptUrl, loginData);
-    if (res.status === "success" && res.user) {
-      setUser(res.user);
-      setUserRole(res.role || "user");
-      localStorage.setItem("emt_user", res.user);
-      localStorage.setItem("emt_role", res.role || "user");
-      setLoginError("");
-      setDebugInfo(null);
-    } else {
-      setLoginError(res.message || "Login Gagal");
-      if (loginData.username === "rifanma45") {
-        setDebugInfo(`URL: ${appsScriptUrl}`);
+    
+    setIsSyncing(true);
+    try {
+      const res = await loginUser(appsScriptUrl, loginData);
+      if (res.status === "success" && res.user) {
+        setUser(res.user);
+        setUserRole(res.role || "user");
+        localStorage.setItem("emt_user", res.user);
+        localStorage.setItem("emt_role", res.role || "user");
+        setLoginError("");
+        setDebugInfo(null);
+      } else {
+        setLoginError(res.message || "Login Gagal");
+        if (loginData.username === "rifanma45") {
+          setDebugInfo(`URL: ${appsScriptUrl}`);
+        }
       }
+    } catch (error) {
+       setLoginError("Terjadi kesalahan sistem saat login");
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -980,8 +1013,8 @@ export default function App() {
       return;
     }
     
-    if (registerData.username.length < 8 || !/\d/.test(registerData.username)) {
-      setLoginError("Username minimal 8 karakter dan wajib ada minimal 1 angka");
+    if (registerData.username.length < 8 || !/[a-zA-Z]/.test(registerData.username) || !/\d/.test(registerData.username)) {
+      setLoginError("Username minimal 8 karakter dan wajib ada kombinasi angka");
       return;
     }
     
@@ -1074,10 +1107,15 @@ export default function App() {
     setActiveId(event.active.id as string);
   };
 
+  const handleDragMove = (event: any) => {
+    //
+  };
+
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, delta } = event;
     setActiveId(null);
-    if (delta.x === 0 && delta.y === 0) return;
+    if (!delta.x && !delta.y) return;
+    if (!delta.x && !delta.y) return;
 
     const activePanel = panels.find(p => p.id === active.id);
     if (!activePanel) return;
@@ -1099,10 +1137,7 @@ export default function App() {
     // Office restriction for Warehouse 1
     const inOffice = selectedWarehouse === "Warehouse 1" && isInsideOffice({ x: newX, y: newY });
 
-    if (hasCollision || inOffice) {
-      // Revert or block move
-      return;
-    }
+    if (hasCollision || inOffice) return;
 
     saveToHistory(panels);
     const newPanels = panels.map(p => {
@@ -1115,6 +1150,11 @@ export default function App() {
       return p;
     });
     setPanels(newPanels);
+
+    // Sync only if not locked
+    if (!isLocked && appsScriptUrl) {
+      saveLayout(appsScriptUrl, newPanels).catch(console.error);
+    }
   };
 
   const handleAddPanel = async () => {
@@ -1210,13 +1250,22 @@ export default function App() {
             </div>
             <div className="space-y-2">
               <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-4">Password</Label>
-              <Input 
-                type="password"
-                value={loginData.password}
-                onChange={(e) => setLoginData(prev => ({ ...prev, password: e.target.value }))}
-                className="rounded-2xl h-14 border-slate-100 bg-slate-50/50 px-6 font-bold"
-                placeholder="••••••••"
-              />
+              <div className="relative">
+                <Input 
+                  type={showLoginPassword ? "text" : "password"}
+                  value={loginData.password}
+                  onChange={(e) => setLoginData(prev => ({ ...prev, password: e.target.value }))}
+                  className="rounded-2xl h-14 border-slate-100 bg-slate-50/50 px-6 pr-14 font-bold"
+                  placeholder="••••••••"
+                />
+                <button 
+                  type="button"
+                  onClick={() => setShowLoginPassword(!showLoginPassword)}
+                  className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-blue-600 transition-colors"
+                >
+                  {showLoginPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
             </div>
             {loginError && (
               <div className="space-y-2">
@@ -1231,9 +1280,10 @@ export default function App() {
             
             <Button 
               onClick={handleLogin}
+              disabled={isSyncing}
               className="w-full h-16 rounded-2xl bg-blue-600 shadow-xl shadow-blue-200 font-black uppercase text-xs tracking-[0.2em] hover:bg-blue-700 transition-all"
             >
-              Login System
+              {isSyncing ? "Logging in..." : "Login System"}
             </Button>
 
             <div className="text-center pt-4">
@@ -1266,80 +1316,80 @@ export default function App() {
               </DialogDescription>
             </DialogHeader>
             
-            <div className="space-y-4 py-4">
-              <div className="space-y-1.5">
-                <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 ml-3">Nama Lengkap</Label>
+            <div className="space-y-1 py-1">
+              <div className="space-y-0.5">
+                <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400 ml-3">Nama Lengkap</Label>
                 <Input 
                   value={registerData.fullName}
                   onChange={(e) => setRegisterData(prev => ({ ...prev, fullName: e.target.value }))}
-                  className="rounded-xl h-12 border-slate-100 bg-slate-50/50 px-5 font-bold"
+                  className="rounded-lg h-9 border-slate-100 bg-slate-50/50 px-3 font-bold text-xs"
                   placeholder="NAMA LENGKAP"
                 />
               </div>
 
-              <div className="space-y-1.5">
-                <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 ml-3">Team</Label>
+              <div className="space-y-0.5">
+                <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400 ml-3">Team</Label>
                 <Select 
                   value={registerData.team} 
                   onValueChange={(val) => setRegisterData(prev => ({ ...prev, team: val }))}
                 >
-                  <SelectTrigger className="rounded-xl h-12 border-slate-100 bg-slate-50/50 px-5 font-bold uppercase text-[10px]">
+                  <SelectTrigger className="rounded-lg h-9 border-slate-100 bg-slate-50/50 px-3 font-bold uppercase text-[9px]">
                     <SelectValue placeholder="PILIH TEAM" />
                   </SelectTrigger>
-                  <SelectContent className="rounded-xl border-slate-100 shadow-xl">
+                  <SelectContent className="rounded-lg border-slate-100 shadow-xl">
                     {masterData.teams.map(team => (
-                      <SelectItem key={team} value={team} className="font-bold uppercase text-[10px] py-3">{team}</SelectItem>
+                      <SelectItem key={team} value={team} className="font-bold uppercase text-[9px] py-1">{team}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
 
-              <div className="space-y-1.5">
-                <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 ml-3">Username (Min 8 Karakter & 1 Angka)</Label>
+              <div className="space-y-0.5">
+                <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400 ml-3">Username (Min 8 Karakter & Kombinasi Angka)</Label>
                 <Input 
                   value={registerData.username}
                   onChange={(e) => setRegisterData(prev => ({ ...prev, username: e.target.value }))}
-                  className="rounded-xl h-12 border-slate-100 bg-slate-50/50 px-5 font-bold"
+                  className="rounded-lg h-9 border-slate-100 bg-slate-50/50 px-3 font-bold text-xs"
                   placeholder="USERNAME"
                 />
               </div>
 
-              <div className="space-y-1.5">
-                <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 ml-3">Password (Min 8 Karakter Kombinasi)</Label>
+              <div className="space-y-0.5 relative">
+                <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400 ml-3">Password (Min 8 Karakter Kombinasi)</Label>
                 <div className="relative">
                   <Input 
                     type={showPassword ? "text" : "password"}
                     value={registerData.password}
                     onChange={(e) => setRegisterData(prev => ({ ...prev, password: e.target.value }))}
-                    className="rounded-xl h-12 border-slate-100 bg-slate-50/50 px-5 pr-12 font-bold"
+                    className="rounded-lg h-9 border-slate-100 bg-slate-50/50 px-3 pr-8 font-bold text-xs"
                     placeholder="••••••••"
                   />
                   <button 
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-blue-600 transition-colors"
+                    className="absolute right-2 top-6 text-slate-400 hover:text-blue-600 transition-colors"
                   >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    {showPassword ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                   </button>
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 ml-3">Konfirmasi Password</Label>
+              <div className="space-y-0.5 relative">
+                <Label className="text-[8px] font-black uppercase tracking-widest text-slate-400 ml-3">Konfirmasi Password</Label>
                 <div className="relative">
                   <Input 
                     type={showConfirmPassword ? "text" : "password"}
                     value={registerData.confirmPassword}
                     onChange={(e) => setRegisterData(prev => ({ ...prev, confirmPassword: e.target.value }))}
-                    className="rounded-xl h-12 border-slate-100 bg-slate-50/50 px-5 pr-12 font-bold"
+                    className="rounded-lg h-9 border-slate-100 bg-slate-50/50 px-3 pr-8 font-bold text-xs"
                     placeholder="••••••••"
                   />
                   <button 
                     type="button"
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-blue-600 transition-colors"
+                    className="absolute right-2 top-6 text-slate-400 hover:text-blue-600 transition-colors"
                   >
-                    {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    {showConfirmPassword ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                   </button>
                 </div>
               </div>
@@ -1373,9 +1423,7 @@ export default function App() {
     ? (selectedPanelPengerjaan as any)[selectedBagianKerja.toLowerCase().trim()]?.split(",").map((s: string) => s.trim().toUpperCase()).filter(Boolean) || []
     : []) as string[];
 
-  const filteredChecklistItems = checklistItems.filter(item => 
-    item.toUpperCase().includes(searchQuery.toUpperCase())
-  );
+  const filteredChecklistItems = checklistItems;
 
   const addPanelAvailablePanelNames = masterData.projects.find(p => p.name.toUpperCase() === newPanelForm.project.toUpperCase())?.panels.map(p => p.name.toUpperCase()) || [];
   const addPanelAvailablePanelCodes = (masterData.projects.find(p => p.name.toUpperCase() === newPanelForm.project.toUpperCase())?.panels.find(p => p.name.toUpperCase() === newPanelForm.name.toUpperCase())?.codes.map(c => c.toUpperCase()) || []).filter(code => !panels.some(p => p.code.toUpperCase() === code));
@@ -1404,7 +1452,7 @@ export default function App() {
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-blue-100">
       {/* Header / Toolbar */}
       <header className="fixed top-0 left-0 right-0 h-16 bg-white/80 backdrop-blur-md border-b border-slate-200 z-50 flex items-center justify-between px-8">
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-4">
           <Sheet>
             <SheetTrigger asChild>
               <Button variant="ghost" size="icon" className="rounded-xl hover:bg-slate-100">
@@ -1474,6 +1522,17 @@ export default function App() {
             </SheetContent>
           </Sheet>
 
+          {/* Sync Status Dot */}
+          <div 
+            className={cn(
+              "w-2 h-2 rounded-full transition-all duration-500",
+              syncError ? "bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]" : 
+              isSyncing ? "bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]" : 
+              "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]"
+            )} 
+            title={syncError ? `Terputus: ${syncError}` : isSyncing ? "Sedang Menghubungkan..." : "Sudah Terhubung"}
+          />
+
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-black text-xs shadow-lg shadow-blue-200">EMT</div>
             <div className="h-4 w-[1px] bg-slate-200 mx-1" />
@@ -1483,7 +1542,7 @@ export default function App() {
                currentView === "executive" ? "Executive Dashboard" : "Setting"}
             </h1>
             {syncError ? (
-              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-red-50 text-red-600 text-[8px] font-black uppercase tracking-tighter animate-pulse border border-red-100">
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-red-50 text-red-600 text-[8px] font-black uppercase tracking-tighter border border-red-100">
                 <Activity className="w-2.5 h-2.5" /> Sync Error
               </div>
             ) : lastSyncTime && (
@@ -1540,9 +1599,25 @@ export default function App() {
       </header>
 
       {/* Main Workspace */}
-      <main className="pt-28 pb-20 px-12 flex justify-center min-h-[calc(100vh-64px)]">
+      <main className="pt-28 pb-20 px-12 flex justify-center min-h-[calc(100vh-64px)] relative">
         <AnimatePresence mode="wait">
-          {currentView === "executive" && <ExecutiveView />}
+          {currentView === "executive" && (
+            <ExecutiveView 
+              ref={monitoringRef}
+              panels={panels}
+              isToolbarCollapsed={isToolbarCollapsed}
+              setIsToolbarCollapsed={setIsToolbarCollapsed}
+              layoutTheme={layoutTheme}
+              setLayoutTheme={setLayoutTheme}
+              zoomPercent={zoomPercent}
+              setZoomPercent={setZoomPercent}
+              handleZoomHold={handleZoomHold}
+              stopZoom={stopZoom}
+              isFullScreen={isFullScreen}
+              toggleFullScreen={toggleFullScreen}
+              lastSyncTime={lastSyncTime}
+            />
+          )}
           
           {currentView === "monitoring" && (
             <motion.div 
@@ -1870,7 +1945,7 @@ export default function App() {
                         <div className="w-full h-full" style={{ backgroundImage: `repeating-linear-gradient(45deg, transparent, transparent 20px, ${layoutTheme === "dark" ? "#ef4444" : "#1e293b"} 20px, ${layoutTheme === "dark" ? "#ef4444" : "#1e293b"} 22px)` }} />
                       </div>
                       <div className={cn(
-                        "font-black text-xs px-4 py-1 rounded-full mb-6 animate-pulse transition-colors",
+                        "font-black text-xs px-4 py-1 rounded-full mb-6 transition-colors",
                         layoutTheme === "dark" 
                           ? "bg-red-600 text-white shadow-[0_0_15px_rgba(239,68,68,0.5)]" 
                           : "bg-slate-900 text-white border border-slate-800"
@@ -1952,6 +2027,7 @@ export default function App() {
                   <DndContext 
                     sensors={sensors} 
                     onDragStart={handleDragStart}
+                    onDragMove={handleDragMove}
                     onDragEnd={handleDragEnd}
                     modifiers={[restrictToWindowEdges]}
                   >
@@ -1961,6 +2037,7 @@ export default function App() {
                         panel={panel} 
                         onEdit={setIsEditing} 
                         onDelete={deletePanel} 
+                        onMaximize={setMaximizedPanel}
                         disabled={isLocked || userRole === "view"}
                         zoom={zoom}
                         warehouse={selectedWarehouse}
@@ -1971,6 +2048,112 @@ export default function App() {
                   </DndContext>
                 </div>
               </div>
+
+              {/* Maximized Panel Modal (Inside monitoring view for Fullscreen) */}
+              <AnimatePresence>
+                {maximizedPanel && (
+                  <motion.div 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm"
+                    onClick={() => setMaximizedPanel(null)}
+                  >
+                    <motion.div 
+                      initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                      animate={{ scale: 1, opacity: 1, y: 0 }}
+                      exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                      onClick={(e) => e.stopPropagation()}
+                      className={cn(
+                        "w-full max-w-xl rounded-[32px] shadow-2xl overflow-hidden border transition-colors",
+                        layoutTheme === "dark" ? "bg-white border-slate-200" : "bg-slate-900 border-slate-800"
+                      )}
+                    >
+                      <div className={cn(
+                        "p-8 border-b flex justify-between items-center",
+                        layoutTheme === "dark" ? "bg-slate-50 border-slate-100" : "bg-slate-950 border-slate-800"
+                      )}>
+                        <div className="space-y-1">
+                          <div className={cn(
+                            "px-3 py-0.5 rounded-md font-black uppercase tracking-[0.2em] text-[14px] inline-block",
+                            layoutTheme === "dark" ? "bg-blue-600 text-white" : "bg-cyan-500 text-slate-950"
+                          )}>
+                            {maximizedPanel.code}
+                          </div>
+                          <h2 className={cn(
+                            "text-4xl font-black italic tracking-tighter uppercase",
+                            layoutTheme === "dark" ? "text-slate-900" : "text-white"
+                          )}>
+                            {maximizedPanel.name}
+                          </h2>
+                        </div>
+                        <div className="text-right">
+                          <div className={cn("text-[10px] font-black uppercase tracking-widest", layoutTheme === "dark" ? "text-slate-400" : "text-slate-500")}>Overall</div>
+                          <div className={cn("text-3xl font-black italic tracking-tighter", layoutTheme === "dark" ? "text-blue-600" : "text-cyan-400")}>
+                            {calculateTotalProgress(maximizedPanel)}%
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="p-8 space-y-8">
+                        <div className={cn("h-3 w-full rounded-full overflow-hidden p-0.5", layoutTheme === "dark" ? "bg-slate-100" : "bg-slate-950")}>
+                          <motion.div 
+                            initial={{ width: 0 }}
+                            animate={{ width: `${calculateTotalProgress(maximizedPanel)}%` }}
+                            className={cn(
+                              "h-full rounded-full",
+                              calculateTotalProgress(maximizedPanel) === 100 ? "bg-emerald-500" : (layoutTheme === "dark" ? "bg-blue-600" : "bg-cyan-600")
+                            )}
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          {Object.entries(maximizedPanel.progress).map(([team, value]) => {
+                            let colorClass = "";
+                            let textClass = "";
+                            let valClass = "";
+
+                            if (team.toUpperCase() === "FABRIKASI") {
+                              colorClass = layoutTheme === "dark" ? "bg-blue-50 border-blue-100" : "bg-blue-950/30 border-blue-900/50";
+                              textClass = layoutTheme === "dark" ? "text-blue-600" : "text-blue-400";
+                              valClass = layoutTheme === "dark" ? "text-blue-950" : "text-white";
+                            } else if (team.toUpperCase() === "WIRING") {
+                              colorClass = layoutTheme === "dark" ? "bg-emerald-50 border-emerald-100" : "bg-emerald-950/30 border-emerald-900/50";
+                              textClass = layoutTheme === "dark" ? "text-emerald-600" : "text-emerald-400";
+                              valClass = layoutTheme === "dark" ? "text-emerald-950" : "text-white";
+                            } else if (team.toUpperCase() === "BUSBAR") {
+                              colorClass = layoutTheme === "dark" ? "bg-amber-50 border-amber-100" : "bg-amber-950/30 border-amber-900/50";
+                              textClass = layoutTheme === "dark" ? "text-amber-600" : "text-amber-400";
+                              valClass = layoutTheme === "dark" ? "text-amber-950" : "text-white";
+                            } else if (team.toUpperCase() === "TAGGING") {
+                              colorClass = layoutTheme === "dark" ? "bg-purple-50 border-purple-100" : "bg-purple-950/30 border-purple-900/50";
+                              textClass = layoutTheme === "dark" ? "text-purple-600" : "text-purple-400";
+                              valClass = layoutTheme === "dark" ? "text-purple-950" : "text-white";
+                            }
+
+                            return (
+                              <div key={team} className={cn("p-6 rounded-2xl border flex flex-col items-center justify-center gap-1 transition-all", colorClass)}>
+                                <span className={cn("text-[10px] font-black uppercase tracking-[0.1em]", textClass)}>{team}</span>
+                                <span className={cn("text-2xl font-black tracking-tighter", valClass)}>{value}%</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        <Button 
+                          onClick={() => setMaximizedPanel(null)}
+                          className={cn(
+                            "w-full h-12 rounded-xl font-black uppercase tracking-widest text-[12px] shadow-lg",
+                            layoutTheme === "dark" ? "bg-slate-900 text-white hover:bg-slate-800" : "bg-white text-slate-900 hover:bg-slate-50"
+                          )}
+                        >
+                          Close View
+                        </Button>
+                      </div>
+                    </motion.div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </motion.div>
           )}
 
@@ -1993,7 +2176,6 @@ export default function App() {
                         setSelectedPanelName("");
                         setSelectedPanelId("");
                         setPendingChecklist([]);
-                        setSearchQuery("");
                       }}>
                         <SelectTrigger className="rounded-2xl border-slate-100 bg-slate-50/50 h-14 px-6 text-xs font-bold text-slate-700 focus:ring-blue-500/20">
                           <SelectValue placeholder="Pilih Project..." />
@@ -2014,7 +2196,6 @@ export default function App() {
                           setSelectedPanelName(val);
                           setSelectedPanelId("");
                           setPendingChecklist([]);
-                          setSearchQuery("");
                         }}
                         disabled={!selectedProject}
                       >
@@ -2036,7 +2217,6 @@ export default function App() {
                         onValueChange={(val) => {
                           setSelectedPanelId(val);
                           setPendingChecklist([]);
-                          setSearchQuery("");
                         }}
                         disabled={!selectedPanelName}
                       >
@@ -2050,40 +2230,45 @@ export default function App() {
                         </SelectContent>
                       </Select>
                     </div>
+
+                    <div className="space-y-3">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">4. Pilih Team</Label>
+                      <Select value={selectedBagianKerja} onValueChange={(val) => {
+                        setSelectedBagianKerja(val);
+                        setPendingChecklist([]);
+                      }}>
+                        <SelectTrigger className="rounded-2xl border-slate-100 bg-slate-50/50 h-14 px-6 text-xs font-bold text-slate-700">
+                          <SelectValue placeholder="PILIH TEAM..." />
+                        </SelectTrigger>
+                        <SelectContent className="rounded-2xl border-slate-100 shadow-2xl">
+                          {masterData.teams.map(b => (
+                            <SelectItem key={b} value={b}>{b}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                 </div>
 
                 {/* Right Card: Checklist */}
                 <div className="bg-white rounded-[32px] border border-slate-100 shadow-xl min-h-[600px] flex flex-col overflow-hidden flex-1 w-full">
-                  <div className="p-8 border-b border-slate-50">
-                    <div className="relative flex items-center gap-4">
-                      <div className="flex-1 relative">
-                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
-                        <Input 
-                          placeholder={matchedPanelOnLayout ? "CARI ITEM PENGERJAAN..." : "LENGKAPI CONFIG DI ATAS DAHULU"} 
-                          disabled={!matchedPanelOnLayout}
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                          className="rounded-2xl bg-slate-50/50 border-none h-14 pl-12 font-bold text-[10px] uppercase tracking-widest disabled:opacity-50"
-                        />
+                  <div className="p-8 border-b border-slate-50 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
+                        <ClipboardList className="w-5 h-5 text-blue-600" />
                       </div>
-                      <div className="w-48">
-                        <Select value={selectedBagianKerja} onValueChange={(val) => {
-                          setSelectedBagianKerja(val);
-                          setPendingChecklist([]);
-                          setSearchQuery("");
-                        }}>
-                          <SelectTrigger className="rounded-2xl border-slate-100 bg-slate-50/50 h-14 px-6 text-xs font-bold text-slate-700">
-                            <SelectValue placeholder="PILIH TEAM" />
-                          </SelectTrigger>
-                          <SelectContent className="rounded-2xl border-slate-100 shadow-2xl">
-                            {masterData.teams.map(b => (
-                              <SelectItem key={b} value={b}>{b}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                      <div className="flex flex-col">
+                        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Daftar Pengerjaan</span>
+                        <span className="text-sm font-black text-slate-900 uppercase tracking-tight leading-none">Item Checklist</span>
                       </div>
                     </div>
+                    {matchedPanelOnLayout && selectedBagianKerja && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
+                          {filteredChecklistItems.length} ITEM
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex-1 p-8">
@@ -2477,7 +2662,6 @@ export default function App() {
           </div>
         </DialogContent>
       </Dialog>
-
     </div>
   );
 }
