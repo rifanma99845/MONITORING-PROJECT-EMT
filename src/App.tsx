@@ -607,6 +607,7 @@ export default function App() {
   const [isAddingPanel, setIsAddingPanel] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
   const monitoringRef = useRef<HTMLDivElement>(null);
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
   
   const getWarehouseSummary = () => {
     const warehousePanels = panels.filter(p => p.warehouse === selectedWarehouse);
@@ -838,10 +839,11 @@ export default function App() {
 
   useEffect(() => {
     const updateBaseZoom = () => {
-      if (monitoringRef.current) {
-        const { width, height } = monitoringRef.current.getBoundingClientRect();
-        // Fit the 3000x1800 layout into the available container space with minimal padding
-        const padding = isFullScreen ? 20 : 60;
+      if (canvasContainerRef.current) {
+        const { width, height } = canvasContainerRef.current.getBoundingClientRect();
+        // Fit the 3000x1800 layout into the available container space
+        // Since canvasContainerRef is the exact inner bounds, we need very little padding
+        const padding = 20;
         const availableWidth = width - padding;
         const availableHeight = height - padding;
         
@@ -863,11 +865,11 @@ export default function App() {
 
     // Use ResizeObserver for more robust size tracking
     let resizeObserver: ResizeObserver | null = null;
-    if (monitoringRef.current) {
+    if (canvasContainerRef.current) {
       resizeObserver = new ResizeObserver(() => {
         updateBaseZoom();
       });
-      resizeObserver.observe(monitoringRef.current);
+      resizeObserver.observe(canvasContainerRef.current);
     }
 
     window.addEventListener('resize', updateBaseZoom);
@@ -2002,6 +2004,7 @@ export default function App() {
               </motion.div>
 
               <div 
+                ref={canvasContainerRef}
                 className={cn(
                   "w-full h-full border border-slate-100 shadow-inner overflow-hidden relative transition-colors duration-500",
                   layoutTheme === "dark" ? "bg-[#02040a]" : (selectedWarehouse === "Warehouse 1" ? "bg-slate-50" : "bg-white"),
