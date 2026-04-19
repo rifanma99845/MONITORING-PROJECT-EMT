@@ -43,6 +43,7 @@ export interface AppConfig {
   pengerjaan: PengerjaanItem[];
   status: StatusChecklist[];
   layout: LayoutData[];
+  delivery?: any[];
 }
 
 export async function fetchAppData(url: string): Promise<AppConfig> {
@@ -59,7 +60,8 @@ export async function fetchAppData(url: string): Promise<AppConfig> {
       masterData: data.masterData,
       pengerjaan: data.pengerjaan || [],
       status: data.status || [],
-      layout: data.layout || []
+      layout: data.layout || [],
+      delivery: data.delivery || []
     };
   } catch (error) {
     console.error('Error fetching app data:', error);
@@ -156,6 +158,21 @@ export async function submitChecklist(url: string, payload: {
   }
 }
 
+export async function deletePanelFromSheet(url: string, payload: {
+  panelId: string;
+  panelCode: string;
+}): Promise<boolean> {
+  try {
+    await fetch(url, {
+      method: 'POST',
+      body: JSON.stringify({ action: 'deletePanel', ...payload }),
+    });
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
 export async function updateMasterData(url: string, masterData: MasterData): Promise<boolean> {
   try {
     const response = await fetch(url, {
@@ -182,6 +199,26 @@ export async function submitUpdateHistory(url: string, payload: {
     const response = await fetch(url, {
       method: 'POST',
       body: JSON.stringify({ action: 'submitUpdateHistory', ...payload }),
+    });
+    const result = await response.json();
+    return result.status === 'success';
+  } catch (error) {
+    return false;
+  }
+}
+
+export async function submitDelivery(url: string, payload: {
+  project: string;
+  panelName: string;
+  panelCode: string;
+  panelId: string;
+  username: string;
+  fullName?: string;
+}): Promise<boolean> {
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      body: JSON.stringify({ action: 'submitDelivery', ...payload }),
     });
     const result = await response.json();
     return result.status === 'success';

@@ -24,7 +24,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Plus, Undo, Redo, Trash2, Edit2, Settings2, Maximize2, Minimize2, Menu, Layout as LayoutIcon, ClipboardList, Settings, Search, Check, Send, Lock, Unlock, ChevronRight, ChevronLeft, X, Sun, Moon, BarChart3, Activity, Eye, EyeOff, RefreshCw } from "lucide-react";
+import { Plus, Undo, Redo, Trash2, Edit2, Settings2, Maximize2, Minimize2, Menu, Layout as LayoutIcon, ClipboardList, Settings, Search, Check, Send, Lock, Unlock, ChevronRight, ChevronLeft, X, Sun, Moon, BarChart3, Activity, Eye, EyeOff, RefreshCw, Share2, Truck } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Sheet,
@@ -32,6 +32,7 @@ import {
   SheetHeader,
   SheetTitle,
   SheetTrigger,
+  SheetClose,
 } from "@/components/ui/sheet";
 import {
   Select,
@@ -42,7 +43,7 @@ import {
 } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { fetchAppData, loginUser, registerUser, saveLayout, submitChecklist, updateMasterData, submitUpdateHistory, PengerjaanItem, StatusChecklist, type MasterData } from "./services/spreadsheetService";
+import { fetchAppData, loginUser, registerUser, saveLayout, submitChecklist, updateMasterData, submitUpdateHistory, submitDelivery, deletePanelFromSheet, PengerjaanItem, StatusChecklist, type MasterData } from "./services/spreadsheetService";
 
 // --- Components ---
 
@@ -101,6 +102,7 @@ const ExecutiveView = forwardRef(({
       initial={{ opacity: 0, scale: 0.98 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.98 }}
+      transition={{ duration: 0.5, ease: "easeInOut" }}
       className={cn("w-full max-w-7xl min-h-[80vh] rounded-[48px] border shadow-2xl overflow-hidden relative p-10 flex flex-col gap-10", layoutTheme === "dark" ? "bg-[#020617] border-slate-800" : "bg-white border-slate-200", isFullScreen && "fixed inset-0 z-[100] rounded-none p-10 overflow-auto")}
     >
       {/* Collapsible Executive Toolbar */}
@@ -311,15 +313,17 @@ interface PanelProps {
   onEdit: (panel: PanelData | null) => void;
   onDelete: (id: string) => void;
   onMaximize: (panel: PanelData) => void;
+  onDelivery: (panel: PanelData) => void;
   isOverlay?: boolean;
   disabled?: boolean;
   zoom: number;
   warehouse?: string;
   theme?: "dark" | "light";
   scale: number;
+  isDelivering?: boolean;
 }
 
-const Panel: React.FC<PanelProps> = ({ panel, onEdit, onDelete, onMaximize, isOverlay, disabled, zoom, warehouse, theme = "dark", scale }) => {
+const Panel: React.FC<PanelProps> = ({ panel, onEdit, onDelete, onMaximize, onDelivery, isOverlay, disabled, zoom, warehouse, theme = "dark", scale, isDelivering }) => {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: panel.id,
     disabled: disabled
@@ -445,6 +449,11 @@ const Panel: React.FC<PanelProps> = ({ panel, onEdit, onDelete, onMaximize, isOv
           <Button variant="ghost" size="icon" className="h-10 w-10 rounded-xl text-red-500 hover:text-red-600 hover:bg-red-50" onClick={(e) => { e.stopPropagation(); onDelete(panel.id); }}>
             <Trash2 className="h-5 w-5" />
           </Button>
+          {totalProgress === 100 && (
+            <Button disabled={isDelivering} variant="ghost" size="icon" className={cn("h-10 w-10 rounded-xl", isDelivering ? "text-emerald-300 pointer-events-none" : "text-emerald-500 hover:text-emerald-600 hover:bg-emerald-50")} onClick={(e) => { e.stopPropagation(); console.log("Truck clicked"); onDelivery(panel); }}>
+              <Truck className={cn("h-5 w-5", isDelivering && "animate-pulse")} />
+            </Button>
+          )}
         </div>
       </div>
     </div>
@@ -456,6 +465,7 @@ const Panel: React.FC<PanelProps> = ({ panel, onEdit, onDelete, onMaximize, isOv
 export default function App() {
   const [user, setUser] = useState<string | null>(() => localStorage.getItem("emt_user"));
   const [userRole, setUserRole] = useState<string | null>(() => localStorage.getItem("emt_role"));
+  const [fullName, setFullName] = useState<string | null>(() => localStorage.getItem("emt_fullName") || "User");
   const [historyUserName, setHistoryUserName] = useState(user || "");
   const [loginData, setLoginData] = useState({ username: "", password: "" });
   const [loginError, setLoginError] = useState("");
@@ -524,20 +534,59 @@ export default function App() {
     }, 300);
   }, [stopScale]);
 
-  // Clean up intervals on unmount
-  useEffect(() => {
-    return () => {
-      stopZoom();
-      stopScale();
-    };
-  }, [stopZoom, stopScale]);
-  const [currentView, setCurrentView] = useState("monitoring"); 
+  // Add this to your App component or pass it as prop
+  const handleDelivery = async (panel: any) => {
+    if (deliveringPanels.includes(panel.id)) return;
+    
+    setDeliveringPanels(prev => [...prev, panel.id]);
+    console.log("Delivery clicked for panel:", panel.id);
+    
+    const success = await submitDelivery(appsScriptUrl!, {
+      project: panel.project,
+      panelName: panel.name,
+      panelCode: panel.code,
+      panelId: panel.id,
+      username: user || "unknown",
+      fullName: fullName || user || "unknown"
+    });
+    
+    setDeliveringPanels(prev => prev.filter(id => id !== panel.id));
+    
+    if (success) {
+      console.log("Delivery success, removing from layout");
+      setDeliveredPanelCodes(prev => [...prev, panel.code.toUpperCase().trim()]);
+      // Remove from panel list completely!
+      setPanels(prevPanels => {
+        const newPanels = prevPanels.filter(p => p.id !== panel.id);
+        
+        // Push the auto removal to script, but it is already done in AppsScript by deleteRow.
+        // Doing saveLayout here ensures everything is perfectly synced
+        if (appsScriptUrl) {
+          saveLayout(appsScriptUrl, newPanels).catch(console.error);
+        }
+        
+        return newPanels;
+      });
+      alert("Panel delivery recorded dan dihapus dari Layout!");
+    } else {
+      console.log("Delivery failed");
+      alert("Delivery gagal.");
+    }
+  };
+  const [currentView, setCurrentView] = useState(() => {
+    const role = localStorage.getItem("emt_role");
+    return role === 'user' ? "update" : "monitoring";
+  });
   const [selectedWarehouse, setSelectedWarehouse] = useState<"Warehouse 1" | "Warehouse 2">("Warehouse 1");
   const [layoutTheme, setLayoutTheme] = useState<"dark" | "light">("dark");
   const [isLocked, setIsLocked] = useState(true);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [isToolbarCollapsed, setIsToolbarCollapsed] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
+  const [isCopied, setIsCopied] = useState(false);
+  const [deliveredPanels, setDeliveredPanels] = useState<string[]>([]);
+  const [deliveredPanelCodes, setDeliveredPanelCodes] = useState<string[]>([]);
+  const [deliveringPanels, setDeliveringPanels] = useState<string[]>([]);
   const lastMousePos = useRef({ x: 0, y: 0 });
 
   const PANEL_WIDTH = 220 * panelScale;
@@ -746,9 +795,32 @@ export default function App() {
 
   useEffect(() => {
     // Reset zoom and pan when full screen toggles to prevent layout distortion
-    setZoomPercent(0);
-    setPanOffset({ x: 0, y: 0 });
-  }, [isFullScreen]);
+    if (isFullScreen) {
+      setZoomPercent(0);
+      setPanOffset({ x: 0, y: 0 });
+    }
+
+    if (!isFullScreen || userRole !== 'view') return;
+
+    const views = [
+      { view: "monitoring", warehouse: "Warehouse 2" },
+      { view: "executive", warehouse: "Warehouse 1" },
+      { view: "monitoring", warehouse: "Warehouse 1" }
+    ];
+
+    // Find initial index
+    let currentIndex = views.findIndex(v => v.view === currentView && (v.view !== "monitoring" || v.warehouse === selectedWarehouse));
+    if (currentIndex === -1) currentIndex = 0;
+
+    const interval = setInterval(() => {
+      currentIndex = (currentIndex + 1) % views.length;
+      const next = views[currentIndex];
+      setCurrentView(next.view);
+      if (next.view === "monitoring") setSelectedWarehouse(next.warehouse as "Warehouse 1" | "Warehouse 2");
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [isFullScreen, userRole]);
 
   const toggleFullScreen = () => {
     if (!monitoringRef.current) return;
@@ -890,7 +962,31 @@ export default function App() {
         })));
       }
       
+      if (data.delivery && data.delivery.length > 0) {
+        // Collect delivered panel codes or ids to filter them out
+        // The delivery sheet has: Project, Nama Panel, Kode Panel, Tanggal, Waktu, Username, Nama Lengkap
+        // We can match them based on panel code since the id might just be a generated string, but panel kode is usually unique in a project.
+        // Or if we need exact id, we should probably save panelId in delivery sheet. But for now, let's match by code.
+        const deliveredCodes = data.delivery.map(d => {
+           // Remove quotes that we added for forcing text format
+           return d.kodepanel ? String(d.kodepanel).replace(/^'/, '').toUpperCase().trim() : "";
+        }).filter(Boolean);
+        
+        // Find panel ids that match these codes so we can add them to deliveredPanels state
+        // We'll do this after setting panels or directly filter them here.
+        // Since we are restoring panels below, we can filter them out right there.
+        // But the user's `deliveredPanels` state stores the unique `panel.id`.
+        // We need to map code back to id based on `data.layout`.
+        const deliveredIds = data.layout
+           .filter(l => deliveredCodes.includes(String(l.code).replace(/^'/, '').toUpperCase().trim()))
+           .map(l => l.panelid);
+           
+        setDeliveredPanels(deliveredIds);
+        setDeliveredPanelCodes(deliveredCodes);
+      }
+      
       if (data.layout && data.layout.length > 0) {
+
         const restoredPanels = data.layout.map(l => ({
           id: l.panelid,
           position: { x: l.x, y: l.y },
@@ -963,9 +1059,12 @@ export default function App() {
     if (loginData.username === "rifanma45" && loginData.password === "maul45") {
       setUser("rifanma45");
       setUserRole("master");
+      setFullName("Rifan Maulana");
       localStorage.setItem("emt_user", "rifanma45");
       localStorage.setItem("emt_role", "master");
+      localStorage.setItem("emt_fullName", "Rifan Maulana");
       setLoginError("");
+      setCurrentView("monitoring");
       return;
     }
 
@@ -979,11 +1078,15 @@ export default function App() {
       const res = await loginUser(appsScriptUrl, loginData);
       if (res.status === "success" && res.user) {
         setUser(res.user);
-        setUserRole(res.role || "user");
+        const role = res.role || "user";
+        setUserRole(role);
+        setFullName(res.fullName || res.user);
         localStorage.setItem("emt_user", res.user);
-        localStorage.setItem("emt_role", res.role || "user");
+        localStorage.setItem("emt_role", role);
+        localStorage.setItem("emt_fullName", res.fullName || res.user);
         setLoginError("");
         setDebugInfo(null);
+        setCurrentView(role === 'user' ? "update" : "monitoring");
       } else {
         setLoginError(res.message || "Login Gagal");
         if (loginData.username === "rifanma45") {
@@ -1000,8 +1103,10 @@ export default function App() {
   const handleLogout = () => {
     setUser(null);
     setUserRole(null);
+    setFullName(null);
     localStorage.removeItem("emt_user");
     localStorage.removeItem("emt_role");
+    localStorage.removeItem("emt_fullName");
   };
 
   const handleRegister = async () => {
@@ -1128,9 +1233,11 @@ export default function App() {
     newY = Math.max(0, Math.min(newY, layoutSize.height - PANEL_HEIGHT));
 
     // Collision detection
+    // Only check collision with panels in the same warehouse that have not been delivered
     const hasCollision = panels.some(p => 
       p.id !== active.id && 
       p.warehouse === selectedWarehouse && 
+      !deliveredPanels.includes(p.id) &&
       checkCollision({ x: newX, y: newY }, p.position)
     );
 
@@ -1218,9 +1325,32 @@ export default function App() {
     }
   };
 
-  const deletePanel = (id: string) => {
+  const deletePanel = async (id: string) => {
+    const activePanel = panels.find(p => p.id === id);
+    if (!activePanel) return;
+
     saveToHistory(panels);
-    setPanels(prev => prev.filter(p => p.id !== id));
+    const newPanels = panels.filter(p => p.id !== id);
+    setPanels(newPanels);
+
+    // Delete related status directly in state to prevent immediate flicker on add later
+    setStatusChecklist(prev => prev.filter(s => s.panelid !== id && (s as any).kodepanel !== activePanel.code));
+
+    if (appsScriptUrl) {
+      try {
+        await deletePanelFromSheet(appsScriptUrl, {
+          panelId: id,
+          panelCode: activePanel.code
+        });
+        // We also want to save the new layout coordinates, just to ensure consistency
+        saveLayout(appsScriptUrl, newPanels).catch(console.error);
+        
+        // Let's refetch data silently to ensure local state is synced properly
+        handleInitData(appsScriptUrl);
+      } catch (error) {
+        console.error("Failed to delete panel from server:", error);
+      }
+    }
   };
 
   if (!user) {
@@ -1415,9 +1545,16 @@ export default function App() {
   const activePanel = panels.find(p => p.id === activeId);
 
   // Derived data
-  const filteredPanels = panels.filter(p => p.warehouse === selectedWarehouse);
+  const activeLayoutPanels = panels.filter(p => !deliveredPanels.includes(p.id));
+  const filteredPanels = activeLayoutPanels.filter(p => p.warehouse === selectedWarehouse);
+
   const availableProjects = masterData.projects.map(p => p.name.toUpperCase());
-  const panelsOnLayout = panels.filter(p => p.project.toUpperCase() === selectedProject.toUpperCase());
+  
+  const updatePekerjaanAvailableProjects = Array.from(new Set(
+    activeLayoutPanels.map(p => p.project.toUpperCase())
+  ));
+
+  const panelsOnLayout = activeLayoutPanels.filter(p => p.project.toUpperCase() === selectedProject.toUpperCase());
   const selectedPanelPengerjaan = pengerjaanData.find(p => p.namapanel.toUpperCase().trim() === selectedPanelName.toUpperCase().trim());
   const checklistItems = (selectedPanelPengerjaan 
     ? (selectedPanelPengerjaan as any)[selectedBagianKerja.toLowerCase().trim()]?.split(",").map((s: string) => s.trim().toUpperCase()).filter(Boolean) || []
@@ -1426,15 +1563,15 @@ export default function App() {
   const filteredChecklistItems = checklistItems;
 
   const addPanelAvailablePanelNames = masterData.projects.find(p => p.name.toUpperCase() === newPanelForm.project.toUpperCase())?.panels.map(p => p.name.toUpperCase()) || [];
-  const addPanelAvailablePanelCodes = (masterData.projects.find(p => p.name.toUpperCase() === newPanelForm.project.toUpperCase())?.panels.find(p => p.name.toUpperCase() === newPanelForm.name.toUpperCase())?.codes.map(c => c.toUpperCase()) || []).filter(code => !panels.some(p => p.code.toUpperCase() === code));
+  const addPanelAvailablePanelCodes = (masterData.projects.find(p => p.name.toUpperCase() === newPanelForm.project.toUpperCase())?.panels.find(p => p.name.toUpperCase() === newPanelForm.name.toUpperCase())?.codes.map(c => c.toUpperCase()) || []).filter(code => !activeLayoutPanels.some(p => p.code.toUpperCase() === code) && !deliveredPanelCodes.includes(code.toUpperCase()));
 
   const updatePekerjaanAvailablePanelNames = Array.from(new Set(
-    panels
+    activeLayoutPanels
       .filter(p => p.project.toUpperCase() === selectedProject.toUpperCase())
       .map(p => p.name.toUpperCase())
   ));
 
-  const updatePekerjaanAvailablePanelCodes = panels
+  const updatePekerjaanAvailablePanelCodes = activeLayoutPanels
     .filter(p => 
       p.project.toUpperCase() === selectedProject.toUpperCase() && 
       p.name.toUpperCase() === selectedPanelName.toUpperCase()
@@ -1442,7 +1579,7 @@ export default function App() {
     .map(p => p.code.toUpperCase());
   
   // Find the panel on layout that matches the selected criteria
-  const matchedPanelOnLayout = panels.find(p => 
+  const matchedPanelOnLayout = activeLayoutPanels.find(p => 
     p.project.toUpperCase() === selectedProject.toUpperCase() && 
     p.name.toUpperCase() === selectedPanelName.toUpperCase() && 
     p.code.toUpperCase() === selectedPanelId.toUpperCase()
@@ -1465,6 +1602,22 @@ export default function App() {
                   <SheetTitle className="text-white font-black uppercase tracking-widest text-sm flex items-center gap-2">
                     <Settings2 className="w-4 h-4" /> EMT MENU
                   </SheetTitle>
+                  <div className="flex flex-col items-center">
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="text-white hover:bg-white/20 rounded-xl"
+                      onClick={() => {
+                        navigator.clipboard.writeText("https://work-flow-emt.vercel.app/").then(() => {
+                          setIsCopied(true);
+                          setTimeout(() => setIsCopied(false), 2000);
+                        });
+                      }}
+                    >
+                      <Share2 className="w-4 h-4" />
+                    </Button>
+                    {isCopied && <span className="text-[9px] font-bold text-blue-100 mt-1 uppercase">Tersalin!</span>}
+                  </div>
                 </SheetHeader>
                 {user && (
                   <div className="flex items-center gap-3 p-3 bg-white/10 rounded-xl backdrop-blur-md border border-white/10">
@@ -1474,38 +1627,45 @@ export default function App() {
                     <div className="flex-1 min-w-0">
                       <p className="text-[8px] font-black text-blue-100 uppercase tracking-widest leading-none mb-1">Logged in as</p>
                       <p className="text-xs font-black truncate">{user}</p>
+                      <p className="text-[8px] font-bold text-white/70 uppercase tracking-wider mt-0.5">{userRole}</p>
                     </div>
                   </div>
                 )}
               </div>
 
-              <div className="flex-1 px-4 py-6 space-y-1">
+              <div className="flex-1 px-4 py-6 flex flex-col gap-2">
                 {(userRole === "master" || userRole === "admin" || userRole === "user") && (
-                  <Button 
-                    variant={currentView === "update" ? "secondary" : "ghost"} 
-                    className={cn("w-full justify-start rounded-xl h-11 font-bold uppercase text-[10px] tracking-wider", currentView === "update" && "bg-blue-50 text-blue-600")}
-                    onClick={() => setCurrentView("update")}
-                  >
-                    <ClipboardList className="w-4 h-4 mr-3" /> Update Pekerjaan
-                  </Button>
+                  <SheetClose asChild>
+                    <Button 
+                      variant={currentView === "update" ? "secondary" : "ghost"} 
+                      className={cn("w-full justify-start rounded-xl h-11 font-bold uppercase text-[10px] tracking-wider", currentView === "update" && "bg-blue-50 text-blue-600")}
+                      onClick={() => setCurrentView("update")}
+                    >
+                      <ClipboardList className="w-4 h-4 mr-3" /> Update Pekerjaan
+                    </Button>
+                  </SheetClose>
                 )}
                 {(userRole === "master" || userRole === "admin" || userRole === "view") && (
-                  <Button 
-                    variant={currentView === "monitoring" ? "secondary" : "ghost"} 
-                    className={cn("w-full justify-start rounded-xl h-11 font-bold uppercase text-[10px] tracking-wider", currentView === "monitoring" && "bg-blue-50 text-blue-600")}
-                    onClick={() => setCurrentView("monitoring")}
-                  >
-                    <LayoutIcon className="w-4 h-4 mr-3" /> Layout Persentase
-                  </Button>
+                  <SheetClose asChild>
+                    <Button 
+                      variant={currentView === "monitoring" ? "secondary" : "ghost"} 
+                      className={cn("w-full justify-start rounded-xl h-11 font-bold uppercase text-[10px] tracking-wider", currentView === "monitoring" && "bg-blue-50 text-blue-600")}
+                      onClick={() => setCurrentView("monitoring")}
+                    >
+                      <LayoutIcon className="w-4 h-4 mr-3" /> Layout Persentase
+                    </Button>
+                  </SheetClose>
                 )}
                 {(userRole === "master" || userRole === "admin") && (
-                  <Button 
-                    variant={currentView === "settings" ? "secondary" : "ghost"} 
-                    className={cn("w-full justify-start rounded-xl h-11 font-bold uppercase text-[10px] tracking-wider", currentView === "settings" && "bg-blue-50 text-blue-600")}
-                    onClick={() => setCurrentView("settings")}
-                  >
-                    <Settings className="w-4 h-4 mr-3" /> Setting
-                  </Button>
+                  <SheetClose asChild>
+                    <Button 
+                      variant={currentView === "settings" ? "secondary" : "ghost"} 
+                      className={cn("w-full justify-start rounded-xl h-11 font-bold uppercase text-[10px] tracking-wider", currentView === "settings" && "bg-blue-50 text-blue-600")}
+                      onClick={() => setCurrentView("settings")}
+                    >
+                      <Settings className="w-4 h-4 mr-3" /> Setting
+                    </Button>
+                  </SheetClose>
                 )}
               </div>
 
@@ -1599,11 +1759,18 @@ export default function App() {
       </header>
 
       {/* Main Workspace */}
-      <main className="pt-28 pb-20 px-12 flex justify-center min-h-[calc(100vh-64px)] relative">
+      <main 
+        ref={monitoringRef}
+        className={cn(
+          "flex justify-center min-h-[calc(100vh-64px)] relative",
+          layoutTheme === "dark" ? "bg-[#020617]" : "bg-slate-100",
+          isFullScreen ? "p-0 pt-0" : "pt-28 pb-20 px-12"
+        )}
+      >
         <AnimatePresence mode="wait">
           {currentView === "executive" && (
             <ExecutiveView 
-              ref={monitoringRef}
+              key="executive"
               panels={panels}
               isToolbarCollapsed={isToolbarCollapsed}
               setIsToolbarCollapsed={setIsToolbarCollapsed}
@@ -1622,15 +1789,14 @@ export default function App() {
           {currentView === "monitoring" && (
             <motion.div 
               key="monitoring"
-              ref={monitoringRef}
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              transition={{ duration: 0.2 }}
+              transition={{ duration: 0.5, ease: "easeInOut" }}
               className={cn(
                 "bg-white border border-slate-200 shadow-2xl shadow-slate-200/50 overflow-hidden relative transition-all duration-500",
                 isFullScreen 
-                  ? "fixed inset-0 z-[100] rounded-none w-screen h-screen" 
+                  ? "w-full h-full rounded-none" 
                   : "flex-1 w-full h-[calc(100vh-120px)] rounded-[40px]"
               )}
             >
@@ -2038,11 +2204,13 @@ export default function App() {
                         onEdit={setIsEditing} 
                         onDelete={deletePanel} 
                         onMaximize={setMaximizedPanel}
+                        onDelivery={handleDelivery}
                         disabled={isLocked || userRole === "view"}
                         zoom={zoom}
                         warehouse={selectedWarehouse}
                         theme={layoutTheme}
                         scale={panelScale}
+                        isDelivering={deliveringPanels.includes(panel.id)}
                       />
                     ))}
                   </DndContext>
@@ -2171,7 +2339,7 @@ export default function App() {
                   <div className="space-y-8">
                     <div className="space-y-3">
                       <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">1. Project</Label>
-                      <Select value={selectedProject} onValueChange={(val) => {
+                      <Select value={selectedProject || undefined} onValueChange={(val) => {
                         setSelectedProject(val);
                         setSelectedPanelName("");
                         setSelectedPanelId("");
@@ -2181,7 +2349,7 @@ export default function App() {
                           <SelectValue placeholder="Pilih Project..." />
                         </SelectTrigger>
                         <SelectContent className="rounded-2xl border-slate-100 shadow-2xl">
-                          {availableProjects.map(proj => (
+                          {updatePekerjaanAvailableProjects.map(proj => (
                             <SelectItem key={proj} value={proj}>{proj}</SelectItem>
                           ))}
                         </SelectContent>
@@ -2191,7 +2359,8 @@ export default function App() {
                     <div className="space-y-3">
                       <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">2. Panel Name</Label>
                       <Select 
-                        value={selectedPanelName} 
+                        key={`panel-${selectedProject}`}
+                        value={selectedPanelName || undefined} 
                         onValueChange={(val) => {
                           setSelectedPanelName(val);
                           setSelectedPanelId("");
@@ -2213,7 +2382,8 @@ export default function App() {
                     <div className="space-y-3">
                       <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">3. Panel Code</Label>
                       <Select 
-                        value={selectedPanelId} 
+                        key={`code-${selectedPanelName}`}
+                        value={selectedPanelId || undefined} 
                         onValueChange={(val) => {
                           setSelectedPanelId(val);
                           setPendingChecklist([]);
@@ -2233,7 +2403,7 @@ export default function App() {
 
                     <div className="space-y-3">
                       <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">4. Pilih Team</Label>
-                      <Select value={selectedBagianKerja} onValueChange={(val) => {
+                      <Select value={selectedBagianKerja || undefined} onValueChange={(val) => {
                         setSelectedBagianKerja(val);
                         setPendingChecklist([]);
                       }}>
@@ -2598,7 +2768,7 @@ export default function App() {
               <div className="space-y-2">
                 <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-4">Project</Label>
                 <Select 
-                  value={newPanelForm.project} 
+                  value={newPanelForm.project || undefined} 
                   onValueChange={(val) => setNewPanelForm(prev => ({ ...prev, project: val, name: "", code: "" }))}
                 >
                   <SelectTrigger className="rounded-2xl h-14 border-slate-100 bg-slate-50/50 px-6 font-bold">
@@ -2613,7 +2783,8 @@ export default function App() {
               <div className="space-y-2">
                 <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-4">Nama Panel</Label>
                 <Select 
-                  value={newPanelForm.name} 
+                  key={`addName-${newPanelForm.project}`}
+                  value={newPanelForm.name || undefined} 
                   onValueChange={(val) => setNewPanelForm(prev => ({ ...prev, name: val, code: "" }))}
                   disabled={!newPanelForm.project}
                 >
@@ -2629,7 +2800,8 @@ export default function App() {
               <div className="space-y-2">
                 <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-4">Kode Panel</Label>
                 <Select 
-                  value={newPanelForm.code} 
+                  key={`addCode-${newPanelForm.name}`}
+                  value={newPanelForm.code || undefined} 
                   onValueChange={(val) => setNewPanelForm(prev => ({ ...prev, code: val }))}
                   disabled={!newPanelForm.name}
                 >

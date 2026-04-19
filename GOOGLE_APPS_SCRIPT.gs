@@ -63,6 +63,10 @@ function doPost(e) {
       result = saveMasterData(data.masterData);
     } else if (action === 'submitUpdateHistory') {
       result = submitUpdateHistory(data);
+    } else if (action === 'submitDelivery') {
+      result = submitDelivery(data);
+    } else if (action === 'deletePanel') {
+      result = deletePanelData(data);
     }
     
     return ContentService.createTextOutput(JSON.stringify(result))
@@ -96,12 +100,14 @@ function getAppData() {
   const pengerjaan = getPengerjaanData(ss);
   const status = getSheetData(ss, 'status_checklist');
   const layout = getSheetData(ss, 'layout');
+  const delivery = getSheetData(ss, 'delivery');
   
   return {
     masterData,
     pengerjaan,
     status,
-    layout
+    layout,
+    delivery
   };
 }
 
@@ -341,3 +347,86 @@ function submitUpdateHistory(payload) {
   
   return { status: 'success', updateId: updateId };
 }
+
+function submitDelivery(payload) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sheet = ss.getSheetByName('delivery');
+  if (!sheet) {
+    sheet = ss.insertSheet('delivery');
+    sheet.appendRow(['Project', 'Nama Panel', 'Kode Panel', 'Tanggal', 'Waktu', 'Nama Lengkap', 'Username']);
+  } else if (sheet.getLastRow() === 0) {
+    sheet.appendRow(['Project', 'Nama Panel', 'Kode Panel', 'Tanggal', 'Waktu', 'Nama Lengkap', 'Username']);
+  }
+  
+  const now = new Date();
+  const dateStr = Utilities.formatDate(now, Session.getScriptTimeZone(), "yyyy-MM-dd");
+  const timeStr = Utilities.formatDate(now, Session.getScriptTimeZone(), "HH:mm:ss");
+  
+  sheet.appendRow([
+    payload.project,
+    payload.panelName,
+    "'" + payload.panelCode.toString(), // Force text format
+    dateStr,
+    timeStr,
+    payload.fullName || payload.username,
+    payload.username
+  ]);
+  
+  // Hapus panel dari sheet layout
+  const layoutSheet = ss.getSheetByName('layout');
+  if (layoutSheet) {
+    const data = layoutSheet.getDataRange().getValues();
+    for (let i = data.length - 1; i >= 1; i--) {
+       // Index 0 adalah Panel ID, Index 5 adalah Kode Panel
+       if (String(data[i][0]) === String(payload.panelId) || 
+           String(data[i][5]).replace(/^'/, '').toUpperCase().trim() === String(payload.panelCode).toUpperCase().trim()) {
+           layoutSheet.deleteRow(i + 1);
+       }
+    }
+  }
+  
+  return { status: 'success' };
+}
+
+function deletePanelData(payload) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  
+  // 1. Delete from layout sheet
+  let layoutSheet = ss.getSheetByName('layout');
+  if (layoutSheet) {
+    let data = layoutSheet.getDataRange().getValues();
+    for (let i = data.length - 1; i >= 1; i--) {
+      if (String(data[i][0]) === String(payload.panelId) || 
+          String(data[i][5]).replace(/^'/, '').toUpperCase().trim() === String(payload.panelCode).toUpperCase().trim()) {
+         layoutSheet.deleteRow(i + 1);
+      }
+    }
+  }
+
+  // 2. Delete from status_checklist (clear progress)
+  let statusSheet = ss.getSheetByName('status_checklist');
+  if (statusSheet) {
+    let data = statusSheet.getDataRange().getValues();
+    for (let i = data.length - 1; i >= 1; i--) {
+      // Index 3 is kodepanel
+      if (String(data[i][3]).replace(/^'/, '').toUpperCase().trim() === String(payload.panelCode).toUpperCase().trim()) {
+         statusSheet.deleteRow(i + 1);
+      }
+    }
+  }
+
+  // 3. Delete from update_history (clear traces)
+  let historySheet = ss.getSheetByName('update_history');
+  if (historySheet) {
+    let data = historySheet.getDataRange().getValues();
+    for (let i = data.length - 1; i >= 1; i--) {
+      // Index 3 is kodepanel in update_history
+      if (String(data[i][3]).replace(/^'/, '').toUpperCase().trim() === String(payload.panelCode).toUpperCase().trim()) {
+         historySheet.deleteRow(i + 1);
+      }
+    }
+  }
+  
+  return { status: 'success' };
+}
+
