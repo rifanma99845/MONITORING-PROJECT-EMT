@@ -465,6 +465,7 @@ const Panel: React.FC<PanelProps> = ({ panel, onEdit, onDelete, onMaximize, onDe
 export default function App() {
   const [user, setUser] = useState<string | null>(() => localStorage.getItem("emt_user"));
   const [userRole, setUserRole] = useState<string | null>(() => localStorage.getItem("emt_role"));
+  const [userTeam, setUserTeam] = useState<string | null>(() => localStorage.getItem("emt_team"));
   const [fullName, setFullName] = useState<string | null>(() => localStorage.getItem("emt_fullName") || "User");
   const [historyUserName, setHistoryUserName] = useState(user || "");
   const [loginData, setLoginData] = useState({ username: "", password: "" });
@@ -575,7 +576,12 @@ export default function App() {
   };
   const [currentView, setCurrentView] = useState(() => {
     const role = localStorage.getItem("emt_role");
-    return role === 'user' ? "update" : "monitoring";
+    const team = localStorage.getItem("emt_team");
+    if (role === 'user') {
+      if (team === 'BUSBAR' || team === 'TAGGING') return "update_busbar";
+      return "update_wiring";
+    }
+    return "monitoring";
   });
   const [selectedWarehouse, setSelectedWarehouse] = useState<"Warehouse 1" | "Warehouse 2">("Warehouse 1");
   const [layoutTheme, setLayoutTheme] = useState<"dark" | "light">("dark");
@@ -678,6 +684,7 @@ export default function App() {
   const [selectedProject, setSelectedProject] = useState("");
   const [selectedPanelName, setSelectedPanelName] = useState("");
   const [selectedPanelId, setSelectedPanelId] = useState("");
+  const [selectedPanelCodes, setSelectedPanelCodes] = useState<string[]>([]);
   const [selectedBagianKerja, setSelectedBagianKerja] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [pendingChecklist, setPendingChecklist] = useState<string[]>([]);
@@ -696,6 +703,9 @@ export default function App() {
   const [settingsSelectedProject, setSettingsSelectedProject] = useState("");
   const [settingsSelectedPanelName, setSettingsSelectedPanelName] = useState("");
   const [settingsNewItem, setSettingsNewItem] = useState({ project: "", panel: "", code: "", team: "" });
+  const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'project' | 'panel' | 'code' | 'team', value: string } | null>(null);
+  const [panelToDelete, setPanelToDelete] = useState<string | null>(null);
+  const [isDeletingPanel, setIsDeletingPanel] = useState(false);
 
   const handleAddMaster = async (type: 'project' | 'panel' | 'code' | 'team') => {
     if (!appsScriptUrl) return;
@@ -739,11 +749,19 @@ export default function App() {
     setIsSyncing(false);
   };
 
-  const handleDeleteMaster = async (type: 'project' | 'panel' | 'code' | 'team', value: string) => {
-    if (!appsScriptUrl || !window.confirm("Apakah Anda yakin ingin menghapus item ini?")) return;
+  const handleDeleteMaster = (type: 'project' | 'panel' | 'code' | 'team', value: string) => {
+    setDeleteConfirm({ type, value });
+  };
+
+  const executeDeleteMaster = async () => {
+    if (!deleteConfirm || !appsScriptUrl) return;
+    const { type, value } = deleteConfirm;
+    setDeleteConfirm(null);
     setIsSyncing(true);
     
-    const newMaster = { ...masterData };
+    // Use deep copy to prevent mutating the original state and breaking React's immutability detection
+    const newMaster: MasterData = JSON.parse(JSON.stringify(masterData));
+    
     if (type === 'project') {
       newMaster.projects = newMaster.projects.filter(p => p.name.toUpperCase().trim() !== value.toUpperCase().trim());
     } else if (type === 'panel') {
@@ -1000,7 +1018,7 @@ export default function App() {
         }));
         
         const panelsWithProgress = restoredPanels.map(p => {
-          const panelStatus = (data.status || []).filter(s => s.panelid === p.id);
+          const panelStatus = (data.status || []).filter(s => s.panelid === p.id || (s.kodepanel?.toUpperCase() === p.code.toUpperCase() && s.project?.toUpperCase() === p.project.toUpperCase()));
           const panelPengerjaan = (data.pengerjaan || []).find(pj => pj.namapanel.toUpperCase().trim() === p.name.toUpperCase().trim());
           
           const teamProgress: Record<string, number> = {};
@@ -1082,13 +1100,21 @@ export default function App() {
         setUser(res.user);
         const role = res.role || "user";
         setUserRole(role);
+        setUserTeam(res.team || null);
         setFullName(res.fullName || res.user);
         localStorage.setItem("emt_user", res.user);
         localStorage.setItem("emt_role", role);
+        if (res.team) localStorage.setItem("emt_team", res.team);
+        else localStorage.removeItem("emt_team");
         localStorage.setItem("emt_fullName", res.fullName || res.user);
         setLoginError("");
         setDebugInfo(null);
-        setCurrentView(role === 'user' ? "update" : "monitoring");
+        if (role === 'user') {
+          if (res.team === 'BUSBAR' || res.team === 'TAGGING') setCurrentView("update_busbar");
+          else setCurrentView("update_wiring");
+        } else {
+          setCurrentView("monitoring");
+        }
       } else {
         setLoginError(res.message || "Login Gagal");
         if (loginData.username === "rifanma45") {
@@ -1105,9 +1131,11 @@ export default function App() {
   const handleLogout = () => {
     setUser(null);
     setUserRole(null);
+    setUserTeam(null);
     setFullName(null);
     localStorage.removeItem("emt_user");
     localStorage.removeItem("emt_role");
+    localStorage.removeItem("emt_team");
     localStorage.removeItem("emt_fullName");
   };
 
@@ -1149,34 +1177,71 @@ export default function App() {
   };
 
   const handleChecklistSubmit = async () => {
-    if (!user || !appsScriptUrl || !matchedPanelOnLayout || !selectedBagianKerja || pendingChecklist.length === 0) return;
+    if (!user || !appsScriptUrl || !selectedBagianKerja || pendingChecklist.length === 0) return;
     
     setIsSyncing(true);
-    
-    // 1. Update Real-time Status (Existing System)
-    const successStatus = await submitChecklist(appsScriptUrl, {
-      panelId: matchedPanelOnLayout.id,
-      project: selectedProject,
-      panelName: selectedPanelName,
-      panelCode: selectedPanelId,
-      bagian: selectedBagianKerja,
-      items: pendingChecklist,
-      user
-    });
+    let allSuccess = true;
 
-    // 2. Submit to Update History (New Feature)
-    const successHistory = await submitUpdateHistory(appsScriptUrl, {
-      username: user,
-      project: selectedProject,
-      panelName: selectedPanelName,
-      panelCode: selectedPanelId,
-      team: selectedBagianKerja,
-      bagian: selectedBagianKerja,
-      items: pendingChecklist
-    });
+    if (currentView === "update_busbar") {
+      if (selectedPanelCodes.length === 0) {
+        setIsSyncing(false);
+        return;
+      }
+      for (const code of selectedPanelCodes) {
+        const layoutPanel = activeLayoutPanels.find(p => p.project.toUpperCase() === selectedProject.toUpperCase() && p.name.toUpperCase() === selectedPanelName.toUpperCase() && p.code.toUpperCase() === code.toUpperCase());
+        
+        const successStatus = await submitChecklist(appsScriptUrl, {
+          panelId: layoutPanel ? layoutPanel.id : "",
+          project: selectedProject,
+          panelName: selectedPanelName,
+          panelCode: code,
+          bagian: selectedBagianKerja,
+          items: pendingChecklist,
+          user
+        });
+        
+        const successHistory = await submitUpdateHistory(appsScriptUrl, {
+          username: user,
+          project: selectedProject,
+          panelName: selectedPanelName,
+          panelCode: code,
+          team: selectedBagianKerja,
+          bagian: selectedBagianKerja,
+          items: pendingChecklist
+        });
+        
+        if (!successStatus || !successHistory) allSuccess = false;
+      }
+    } else {
+      if (!matchedPanelOnLayout) {
+        setIsSyncing(false);
+        return;
+      }
+      const successStatus = await submitChecklist(appsScriptUrl, {
+        panelId: matchedPanelOnLayout.id,
+        project: selectedProject,
+        panelName: selectedPanelName,
+        panelCode: selectedPanelId,
+        bagian: selectedBagianKerja,
+        items: pendingChecklist,
+        user
+      });
 
-    if (successStatus && successHistory) {
+      const successHistory = await submitUpdateHistory(appsScriptUrl, {
+        username: user,
+        project: selectedProject,
+        panelName: selectedPanelName,
+        panelCode: selectedPanelId,
+        team: selectedBagianKerja,
+        bagian: selectedBagianKerja,
+        items: pendingChecklist
+      });
+      if (!successStatus || !successHistory) allSuccess = false;
+    }
+
+    if (allSuccess) {
       setPendingChecklist([]);
+      setSelectedPanelCodes([]);
       handleInitData(appsScriptUrl);
     }
     setIsSyncing(false);
@@ -1327,16 +1392,21 @@ export default function App() {
     }
   };
 
-  const deletePanel = async (id: string) => {
+  const confirmDeletePanel = (id: string) => {
+    setPanelToDelete(id);
+  };
+
+  const executeDeletePanel = async () => {
+    if (!panelToDelete) return;
+    
+    setIsDeletingPanel(true);
+    const id = panelToDelete;
     const activePanel = panels.find(p => p.id === id);
-    if (!activePanel) return;
-
-    saveToHistory(panels);
-    const newPanels = panels.filter(p => p.id !== id);
-    setPanels(newPanels);
-
-    // Delete related status directly in state to prevent immediate flicker on add later
-    setStatusChecklist(prev => prev.filter(s => s.panelid !== id && (s as any).kodepanel !== activePanel.code));
+    if (!activePanel) {
+      setPanelToDelete(null);
+      setIsDeletingPanel(false);
+      return;
+    }
 
     if (appsScriptUrl) {
       try {
@@ -1344,15 +1414,30 @@ export default function App() {
           panelId: id,
           panelCode: activePanel.code
         });
+        
+        saveToHistory(panels);
+        const newPanels = panels.filter(p => p.id !== id);
+        
         // We also want to save the new layout coordinates, just to ensure consistency
-        saveLayout(appsScriptUrl, newPanels).catch(console.error);
+        await saveLayout(appsScriptUrl, newPanels);
+
+        setPanels(newPanels);
+        setStatusChecklist(prev => prev.filter(s => s.panelid !== id && (s as any).kodepanel !== activePanel.code));
         
         // Let's refetch data silently to ensure local state is synced properly
-        handleInitData(appsScriptUrl);
+        await handleInitData(appsScriptUrl);
       } catch (error) {
         console.error("Failed to delete panel from server:", error);
       }
+    } else {
+        saveToHistory(panels);
+        const newPanels = panels.filter(p => p.id !== id);
+        setPanels(newPanels);
+        setStatusChecklist(prev => prev.filter(s => s.panelid !== id && (s as any).kodepanel !== activePanel.code));
     }
+
+    setPanelToDelete(null);
+    setIsDeletingPanel(false);
   };
 
   if (!user) {
@@ -1376,7 +1461,7 @@ export default function App() {
               <Input 
                 value={loginData.username}
                 onChange={(e) => setLoginData(prev => ({ ...prev, username: e.target.value }))}
-                className="rounded-2xl h-14 border-slate-100 bg-slate-50/50 px-6 font-bold"
+                className="rounded-2xl h-12 md:h-14 border-slate-100 bg-slate-50/50 px-4 md:px-6 font-bold"
                 placeholder="USERNAME"
               />
             </div>
@@ -1387,7 +1472,7 @@ export default function App() {
                   type={showLoginPassword ? "text" : "password"}
                   value={loginData.password}
                   onChange={(e) => setLoginData(prev => ({ ...prev, password: e.target.value }))}
-                  className="rounded-2xl h-14 border-slate-100 bg-slate-50/50 px-6 pr-14 font-bold"
+                  className="rounded-2xl h-12 md:h-14 border-slate-100 bg-slate-50/50 px-4 md:px-6 pr-14 font-bold"
                   placeholder="••••••••"
                 />
                 <button 
@@ -1580,6 +1665,10 @@ export default function App() {
     )
     .map(p => p.code.toUpperCase());
   
+  const busbarAvailableProjects = masterData.projects.map(p => p.name.toUpperCase());
+  const busbarAvailablePanelNames = masterData.projects.find(p => p.name.toUpperCase() === selectedProject.toUpperCase())?.panels.map(p => p.name.toUpperCase()) || [];
+  const busbarAvailablePanelCodes = masterData.projects.find(p => p.name.toUpperCase() === selectedProject.toUpperCase())?.panels.find(p => p.name.toUpperCase() === selectedPanelName.toUpperCase())?.codes.map(c => c.toUpperCase()) || [];
+  
   // Find the panel on layout that matches the selected criteria
   const matchedPanelOnLayout = activeLayoutPanels.find(p => 
     p.project.toUpperCase() === selectedProject.toUpperCase() && 
@@ -1590,7 +1679,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-blue-100">
       {/* Header / Toolbar */}
-      <header className="fixed top-0 left-0 right-0 h-16 bg-white/80 backdrop-blur-md border-b border-slate-200 z-50 flex items-center justify-between px-8">
+      <header className="fixed top-0 left-0 right-0 h-16 bg-white/80 backdrop-blur-md border-b border-slate-200 z-50 flex items-center justify-between px-4 lg:px-8">
         <div className="flex items-center gap-4">
           <Sheet>
             <SheetTrigger asChild>
@@ -1636,14 +1725,25 @@ export default function App() {
               </div>
 
               <div className="flex-1 px-4 py-6 flex flex-col gap-2">
-                {(userRole === "master" || userRole === "admin" || userRole === "user") && (
+                {(userRole === "master" || userRole === "admin" || (userRole === "user" && (!userTeam || userTeam === "WIRING" || userTeam === "FABRIKASI"))) && (
                   <SheetClose asChild>
                     <Button 
-                      variant={currentView === "update" ? "secondary" : "ghost"} 
-                      className={cn("w-full justify-start rounded-xl h-11 font-bold uppercase text-[10px] tracking-wider", currentView === "update" && "bg-blue-50 text-blue-600")}
-                      onClick={() => setCurrentView("update")}
+                      variant={currentView === "update_wiring" ? "secondary" : "ghost"} 
+                      className={cn("w-full justify-start rounded-xl h-11 font-bold uppercase text-[10px] tracking-wider", currentView === "update_wiring" && "bg-blue-50 text-blue-600")}
+                      onClick={() => setCurrentView("update_wiring")}
                     >
-                      <ClipboardList className="w-4 h-4 mr-3" /> Update Pekerjaan
+                      <ClipboardList className="w-4 h-4 mr-3" /> {userRole === "master" || userRole === "admin" ? "Update Wiring & Fabrikasi" : "Update Pekerjaan"}
+                    </Button>
+                  </SheetClose>
+                )}
+                {(userRole === "master" || userRole === "admin" || (userRole === "user" && (userTeam === "BUSBAR" || userTeam === "TAGGING"))) && (
+                  <SheetClose asChild>
+                    <Button 
+                      variant={currentView === "update_busbar" ? "secondary" : "ghost"} 
+                      className={cn("w-full justify-start rounded-xl h-11 font-bold uppercase text-[10px] tracking-wider", currentView === "update_busbar" && "bg-blue-50 text-blue-600")}
+                      onClick={() => setCurrentView("update_busbar")}
+                    >
+                      <ClipboardList className="w-4 h-4 mr-3" /> {userRole === "master" || userRole === "admin" ? "Update Busbar & Tagging" : "Update Pekerjaan"}
                     </Button>
                   </SheetClose>
                 )}
@@ -1700,7 +1800,8 @@ export default function App() {
             <div className="h-4 w-[1px] bg-slate-200 mx-1" />
             <h1 className="font-extrabold text-sm uppercase tracking-widest text-slate-800">
               {currentView === "monitoring" ? "Layout Persentase" : 
-               currentView === "update" ? "Update Pekerjaan" : 
+               currentView === "update_wiring" ? (userRole === "master" || userRole === "admin" ? "Update Wiring & Fabrikasi" : "Update Pekerjaan") : 
+               currentView === "update_busbar" ? (userRole === "master" || userRole === "admin" ? "Update Busbar & Tagging" : "Update Pekerjaan") : 
                currentView === "executive" ? "Executive Dashboard" : "Setting"}
             </h1>
             {syncError ? (
@@ -1766,7 +1867,7 @@ export default function App() {
         className={cn(
           "flex justify-center min-h-[calc(100vh-64px)] relative",
           layoutTheme === "dark" ? "bg-[#020617]" : "bg-slate-100",
-          isFullScreen ? "p-0 pt-0" : "pt-28 pb-20 px-12"
+          isFullScreen ? "p-0 pt-0" : "pt-20 md:pt-28 pb-10 md:pb-20 px-4 md:px-12"
         )}
       >
         <AnimatePresence mode="wait">
@@ -2205,7 +2306,7 @@ export default function App() {
                         key={panel.id} 
                         panel={panel} 
                         onEdit={setIsEditing} 
-                        onDelete={deletePanel} 
+                        onDelete={confirmDeletePanel} 
                         onMaximize={setMaximizedPanel}
                         onDelivery={handleDelivery}
                         disabled={isLocked || userRole === "view"}
@@ -2328,9 +2429,9 @@ export default function App() {
             </motion.div>
           )}
 
-          {currentView === "update" && (
+          {currentView === "update_wiring" && (
             <motion.div 
-              key="update"
+              key="update_wiring"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 20 }}
@@ -2338,7 +2439,7 @@ export default function App() {
             >
               <div className="flex flex-col xl:flex-row gap-6 items-start">
                 {/* Left Card: Selection */}
-                <div className="bg-white rounded-[32px] border border-slate-100 shadow-xl p-8 space-y-8 w-full xl:w-1/3 shrink-0">
+                <div className="bg-white rounded-[24px] md:rounded-[32px] border border-slate-100 shadow-xl p-5 md:p-8 space-y-5 md:space-y-8 w-full xl:w-1/3 shrink-0">
                   <div className="space-y-8">
                     <div className="space-y-3">
                       <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">1. Project</Label>
@@ -2348,7 +2449,7 @@ export default function App() {
                         setSelectedPanelId("");
                         setPendingChecklist([]);
                       }}>
-                        <SelectTrigger className="rounded-2xl border-slate-100 bg-slate-50/50 h-14 px-6 text-xs font-bold text-slate-700 focus:ring-blue-500/20">
+                        <SelectTrigger className="rounded-2xl border-slate-100 bg-slate-50/50 h-12 md:h-14 px-4 md:px-6 text-[10px] md:text-xs font-bold text-slate-700 focus:ring-blue-500/20">
                           <SelectValue placeholder="Pilih Project..." />
                         </SelectTrigger>
                         <SelectContent className="rounded-2xl border-slate-100 shadow-2xl">
@@ -2371,7 +2472,7 @@ export default function App() {
                         }}
                         disabled={!selectedProject}
                       >
-                        <SelectTrigger className="rounded-2xl border-slate-100 bg-slate-50/50 h-14 px-6 text-xs font-bold text-slate-700 disabled:opacity-50">
+                        <SelectTrigger className="rounded-2xl border-slate-100 bg-slate-50/50 h-12 md:h-14 px-4 md:px-6 text-[10px] md:text-xs font-bold text-slate-700 disabled:opacity-50">
                           <SelectValue placeholder={selectedProject ? "Pilih Nama Panel..." : "Pilih Project Dahulu"} />
                         </SelectTrigger>
                         <SelectContent className="rounded-2xl border-slate-100 shadow-2xl">
@@ -2393,7 +2494,7 @@ export default function App() {
                         }}
                         disabled={!selectedPanelName}
                       >
-                        <SelectTrigger className="rounded-2xl border-slate-100 bg-slate-50/50 h-14 px-6 text-xs font-bold text-slate-700 disabled:opacity-50">
+                        <SelectTrigger className="rounded-2xl border-slate-100 bg-slate-50/50 h-12 md:h-14 px-4 md:px-6 text-[10px] md:text-xs font-bold text-slate-700 disabled:opacity-50">
                           <SelectValue placeholder={selectedPanelName ? "Pilih Kode Panel..." : "Pilih Nama Panel Dahulu"} />
                         </SelectTrigger>
                         <SelectContent className="rounded-2xl border-slate-100 shadow-2xl">
@@ -2410,11 +2511,11 @@ export default function App() {
                         setSelectedBagianKerja(val);
                         setPendingChecklist([]);
                       }}>
-                        <SelectTrigger className="rounded-2xl border-slate-100 bg-slate-50/50 h-14 px-6 text-xs font-bold text-slate-700">
+                        <SelectTrigger className="rounded-2xl border-slate-100 bg-slate-50/50 h-12 md:h-14 px-4 md:px-6 text-[10px] md:text-xs font-bold text-slate-700">
                           <SelectValue placeholder="PILIH TEAM..." />
                         </SelectTrigger>
                         <SelectContent className="rounded-2xl border-slate-100 shadow-2xl">
-                          {masterData.teams.map(b => (
+                          {masterData.teams.filter(t => t.toUpperCase() === "WIRING" || t.toUpperCase() === "FABRIKASI").map(b => (
                             <SelectItem key={b} value={b}>{b}</SelectItem>
                           ))}
                         </SelectContent>
@@ -2424,8 +2525,8 @@ export default function App() {
                 </div>
 
                 {/* Right Card: Checklist */}
-                <div className="bg-white rounded-[32px] border border-slate-100 shadow-xl min-h-[600px] flex flex-col overflow-hidden flex-1 w-full">
-                  <div className="p-8 border-b border-slate-50 flex items-center justify-between">
+                <div className="bg-white rounded-[24px] md:rounded-[32px] border border-slate-100 shadow-xl min-h-[400px] lg:min-h-[600px] flex flex-col overflow-hidden flex-1 w-full">
+                  <div className="p-5 md:p-8 border-b border-slate-50 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
                         <ClipboardList className="w-5 h-5 text-blue-600" />
@@ -2444,7 +2545,7 @@ export default function App() {
                     )}
                   </div>
 
-                  <div className="flex-1 p-8">
+                  <div className="flex-1 p-5 md:p-8">
                     {!matchedPanelOnLayout || !selectedBagianKerja ? (
                       <div className="h-full flex flex-col items-center justify-center space-y-4 opacity-30">
                         <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center">
@@ -2472,7 +2573,7 @@ export default function App() {
                                 );
                               }}
                               className={cn(
-                                "p-5 rounded-2xl border transition-all flex items-center justify-between cursor-pointer",
+                                "p-4 md:p-5 rounded-2xl border transition-all flex items-center justify-between cursor-pointer",
                                 isAlreadyChecked ? "bg-emerald-50 border-emerald-100 opacity-60" : 
                                 isPending ? "bg-blue-50 border-blue-200 shadow-md" : "bg-white border-slate-100 hover:border-blue-200"
                               )}
@@ -2506,8 +2607,237 @@ export default function App() {
                 onClick={handleChecklistSubmit}
                 disabled={pendingChecklist.length === 0 || isSyncing}
                 className={cn(
-                  "w-full h-20 rounded-[24px] font-black uppercase text-xs tracking-[0.3em] transition-all shadow-xl",
+                  "w-full h-14 md:h-20 rounded-[20px] md:rounded-[24px] font-black uppercase text-[10px] md:text-xs tracking-widest md:tracking-[0.3em] transition-all shadow-xl",
                   pendingChecklist.length > 0 ? "bg-slate-900 text-white shadow-slate-200 hover:bg-slate-800" : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                )}
+              >
+                {isSyncing ? (
+                  <div className="flex items-center gap-3">
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    MENGIRIM DATA...
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3">
+                    <Send className="w-4 h-4" />
+                    SUBMIT UPDATE PEKERJAAN
+                  </div>
+                )}
+              </Button>
+            </motion.div>
+          )}
+
+          {currentView === "update_busbar" && (
+            <motion.div 
+              key="update_busbar"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              className="w-full max-w-7xl flex flex-col gap-6"
+            >
+              <div className="flex flex-col xl:flex-row gap-6 items-start">
+                <div className="bg-white rounded-[24px] md:rounded-[32px] border border-slate-100 shadow-xl p-5 md:p-8 space-y-5 md:space-y-8 w-full xl:w-1/3 shrink-0">
+                  <div className="space-y-8">
+                    <div className="space-y-3">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">1. Pilih Team</Label>
+                      <Select value={selectedBagianKerja || undefined} onValueChange={(val) => {
+                        setSelectedBagianKerja(val);
+                        setPendingChecklist([]);
+                      }}>
+                        <SelectTrigger className="rounded-2xl border-slate-100 bg-slate-50/50 h-12 md:h-14 px-4 md:px-6 text-[10px] md:text-xs font-bold text-slate-700">
+                          <SelectValue placeholder="PILIH TEAM..." />
+                        </SelectTrigger>
+                        <SelectContent className="rounded-2xl border-slate-100 shadow-2xl">
+                          {masterData.teams.filter(t => t.toUpperCase() === "BUSBAR" || t.toUpperCase() === "TAGGING").map(b => (
+                            <SelectItem key={b} value={b}>{b}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-3">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">2. Project</Label>
+                      <Select value={selectedProject || undefined} onValueChange={(val) => {
+                        setSelectedProject(val);
+                        setSelectedPanelName("");
+                        setSelectedPanelCodes([]);
+                        setPendingChecklist([]);
+                      }}>
+                        <SelectTrigger className="rounded-2xl border-slate-100 bg-slate-50/50 h-12 md:h-14 px-4 md:px-6 text-[10px] md:text-xs font-bold text-slate-700 focus:ring-blue-500/20">
+                          <SelectValue placeholder="Pilih Project..." />
+                        </SelectTrigger>
+                        <SelectContent className="rounded-2xl border-slate-100 shadow-2xl">
+                          {busbarAvailableProjects.map(proj => (
+                            <SelectItem key={proj} value={proj}>{proj}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-3">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">3. Panel Name</Label>
+                      <Select 
+                        key={`panel-${selectedProject}`}
+                        value={selectedPanelName || undefined} 
+                        onValueChange={(val) => {
+                          setSelectedPanelName(val);
+                          setSelectedPanelCodes([]);
+                          setPendingChecklist([]);
+                        }}
+                        disabled={!selectedProject}
+                      >
+                        <SelectTrigger className="rounded-2xl border-slate-100 bg-slate-50/50 h-12 md:h-14 px-4 md:px-6 text-[10px] md:text-xs font-bold text-slate-700 disabled:opacity-50">
+                          <SelectValue placeholder={selectedProject ? "Pilih Nama Panel..." : "Pilih Project Dahulu"} />
+                        </SelectTrigger>
+                        <SelectContent className="rounded-2xl border-slate-100 shadow-2xl">
+                          {busbarAvailablePanelNames.map(name => (
+                            <SelectItem key={name} value={name}>{name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-3">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1 flex justify-between">
+                        <span>4. Pilih Kode Panel (Bisa Lebih Dari Satu)</span>
+                        <span className="text-blue-500">{selectedPanelCodes.length} dipilih</span>
+                      </Label>
+                      <ScrollArea className="h-[200px] rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                        {!selectedPanelName ? (
+                          <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest text-center mt-16">
+                            Pilih Nama Panel Dahulu
+                          </div>
+                        ) : busbarAvailablePanelCodes.length === 0 ? (
+                          <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest text-center mt-16">
+                            Tidak Ada Kode Panel
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <div 
+                              className="flex items-center gap-3 p-3 rounded-xl border border-slate-100 bg-white cursor-pointer hover:border-blue-200 transition-all"
+                              onClick={() => {
+                                if (selectedPanelCodes.length === busbarAvailablePanelCodes.length) {
+                                  setSelectedPanelCodes([]);
+                                } else {
+                                  setSelectedPanelCodes([...busbarAvailablePanelCodes]);
+                                }
+                              }}
+                            >
+                              <div className={cn(
+                                "w-5 h-5 rounded-md flex items-center justify-center transition-all",
+                                selectedPanelCodes.length === busbarAvailablePanelCodes.length ? "bg-blue-600 text-white" : "bg-slate-100 border border-slate-200"
+                              )}>
+                                {selectedPanelCodes.length === busbarAvailablePanelCodes.length && <Check className="w-3 h-3" />}
+                              </div>
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-700">
+                                Pilih Semua
+                              </span>
+                            </div>
+                            {busbarAvailablePanelCodes.map(code => {
+                              const isSelected = selectedPanelCodes.includes(code);
+                              return (
+                                <div 
+                                  key={code}
+                                  className={cn(
+                                    "flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer",
+                                    isSelected ? "bg-blue-50 border-blue-200" : "bg-white border-slate-100 hover:border-blue-200"
+                                  )}
+                                  onClick={() => {
+                                    setSelectedPanelCodes(prev => 
+                                      prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]
+                                    );
+                                  }}
+                                >
+                                  <div className={cn(
+                                    "w-5 h-5 rounded-md flex items-center justify-center transition-all",
+                                    isSelected ? "bg-blue-600 text-white" : "bg-slate-100 border border-slate-200"
+                                  )}>
+                                    {isSelected && <Check className="w-3 h-3" />}
+                                  </div>
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-700">
+                                    {code}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </ScrollArea>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-[24px] md:rounded-[32px] border border-slate-100 shadow-xl min-h-[400px] lg:min-h-[600px] flex flex-col overflow-hidden flex-1 w-full">
+                  <div className="p-5 md:p-8 border-b border-slate-50 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
+                        <ClipboardList className="w-5 h-5 text-blue-600" />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Daftar Pengerjaan</span>
+                        <span className="text-sm font-black text-slate-900 uppercase tracking-tight leading-none">Item Checklist</span>
+                      </div>
+                    </div>
+                    {selectedBagianKerja && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
+                          {filteredChecklistItems.length} ITEM
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex-1 p-5 md:p-8">
+                    {!selectedBagianKerja ? (
+                      <div className="h-full flex flex-col items-center justify-center space-y-4 opacity-30">
+                        <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center">
+                          <ClipboardList className="w-10 h-10 text-slate-400" />
+                        </div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Pilih Team Dahulu</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {filteredChecklistItems.map((item) => {
+                          const isPending = pendingChecklist.includes(item);
+                          
+                          return (
+                            <div 
+                              key={item}
+                              onClick={() => {
+                                setPendingChecklist(prev => 
+                                  prev.includes(item) ? prev.filter(i => i !== item) : [...prev, item]
+                                );
+                              }}
+                              className={cn(
+                                "p-4 md:p-5 rounded-2xl border transition-all flex items-center justify-between cursor-pointer",
+                                isPending ? "bg-blue-50 border-blue-200 shadow-md" : "bg-white border-slate-100 hover:border-blue-200"
+                              )}
+                            >
+                              <div className="flex items-center gap-4">
+                                <div className={cn(
+                                  "w-6 h-6 rounded-lg flex items-center justify-center transition-all",
+                                  isPending ? "bg-blue-600 text-white" : "bg-slate-100 text-transparent"
+                                )}>
+                                  <Check className="w-4 h-4" />
+                                </div>
+                                <span className={cn("text-[10px] font-bold uppercase tracking-wider", "text-slate-700")}>
+                                  {item}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <Button 
+                onClick={handleChecklistSubmit}
+                disabled={pendingChecklist.length === 0 || isSyncing || selectedPanelCodes.length === 0}
+                className={cn(
+                  "w-full h-14 md:h-20 rounded-[20px] md:rounded-[24px] font-black uppercase text-[10px] md:text-xs tracking-widest md:tracking-[0.3em] transition-all shadow-xl",
+                  (pendingChecklist.length > 0 && selectedPanelCodes.length > 0) ? "bg-slate-900 text-white shadow-slate-200 hover:bg-slate-800" : "bg-slate-200 text-slate-400 cursor-not-allowed"
                 )}
               >
                 {isSyncing ? (
@@ -2533,6 +2863,29 @@ export default function App() {
               exit={{ opacity: 0, y: 20 }}
               className="w-full max-w-7xl"
             >
+              {/* Delete Confirmation Dialog */}
+              <Dialog open={!!deleteConfirm} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Konfirmasi Hapus</DialogTitle>
+                    <DialogDescription>
+                      Apakah Anda yakin ingin menghapus {deleteConfirm?.type === 'project' ? 'Project' : deleteConfirm?.type === 'panel' ? 'Panel' : deleteConfirm?.type === 'code' ? 'Kode Panel' : 'Team'}{" "}
+                      <span className="font-bold text-slate-900">{deleteConfirm?.value}</span>? Tindakan ini tidak dapat dibatalkan.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <DialogFooter className="mt-6 gap-3 sm:gap-0">
+                    <Button variant="outline" onClick={() => setDeleteConfirm(null)} disabled={isSyncing}>Batal</Button>
+                    <Button 
+                      onClick={executeDeleteMaster} 
+                      className="bg-red-600 hover:bg-red-700 text-white" 
+                      disabled={isSyncing}
+                    >
+                      {isSyncing ? "Menghapus..." : "Ya, Hapus"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
               <div className="grid grid-cols-4 gap-6 h-[700px]">
                 {/* 1. PROJECT AKTIF */}
                 <div className="bg-white rounded-[32px] border border-slate-100 shadow-xl flex flex-col overflow-hidden">
@@ -2755,6 +3108,43 @@ export default function App() {
         </AnimatePresence>
       </main>
 
+      {/* Delete Panel Dialog */}
+      <Dialog open={!!panelToDelete} onOpenChange={(open) => {
+        if (!open && !isDeletingPanel) setPanelToDelete(null);
+      }}>
+        <DialogContent className="sm:max-w-md rounded-[32px] border-none shadow-2xl p-8">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-black italic tracking-tighter text-slate-900">Konfirmasi Hapus Panel</DialogTitle>
+            <DialogDescription className="text-slate-500 font-medium mt-2">
+              Apakah Anda yakin ingin menghapus panel <span className="font-bold text-slate-900">{panels.find(p => p.id === panelToDelete)?.code}</span> dari layout? 
+              Ini akan menghapus posisi di layout beserta histori pekerjaannya.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-8 flex items-center justify-end gap-3 flex-col sm:flex-row">
+            <Button 
+              variant="outline" 
+              onClick={() => setPanelToDelete(null)}
+              disabled={isDeletingPanel}
+              className="rounded-xl w-full sm:w-auto font-bold"
+            >
+              Batal
+            </Button>
+            <Button 
+              onClick={executeDeletePanel}
+              disabled={isDeletingPanel}
+              className="rounded-xl w-full sm:w-auto bg-red-500 hover:bg-red-600 text-white font-bold"
+            >
+              {isDeletingPanel ? (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4 animate-spin text-white inline-block" />
+                  Menghapus...
+                </>
+              ) : "Ya, Hapus Panel"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Add Panel Dialog */}
       <Dialog open={isAddingPanel} onOpenChange={setIsAddingPanel}>
         <DialogContent className="sm:max-w-[500px] rounded-[40px] border-none shadow-2xl p-0 overflow-hidden">
@@ -2774,7 +3164,7 @@ export default function App() {
                   value={newPanelForm.project || undefined} 
                   onValueChange={(val) => setNewPanelForm(prev => ({ ...prev, project: val, name: "", code: "" }))}
                 >
-                  <SelectTrigger className="rounded-2xl h-14 border-slate-100 bg-slate-50/50 px-6 font-bold">
+                  <SelectTrigger className="rounded-2xl h-12 md:h-14 border-slate-100 bg-slate-50/50 px-4 md:px-6 font-bold">
                     <SelectValue placeholder="PILIH PROJECT" />
                   </SelectTrigger>
                   <SelectContent className="rounded-2xl border-slate-100 shadow-2xl">
