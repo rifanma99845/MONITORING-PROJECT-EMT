@@ -1202,13 +1202,28 @@ export default function App() {
       for (const code of selectedPanelCodes) {
         const layoutPanel = activeLayoutPanels.find(p => p.project.toUpperCase() === selectedProject.toUpperCase() && p.name.toUpperCase() === selectedPanelName.toUpperCase() && p.code.toUpperCase() === code.toUpperCase());
         
+        // Only submit items that are not already checked for this code + bagian
+        const itemsToUpdate = pendingChecklist.filter(item => {
+          const isDone = statusChecklist.some(s => 
+            s.bagian === selectedBagianKerja && 
+            s.itemname === item &&
+            (layoutPanel ? s.panelid === layoutPanel.id : (s as any).kodepanel === code)
+          );
+          return !isDone;
+        });
+
+        if (itemsToUpdate.length === 0) {
+          console.warn(`Skipping all items for code: ${code}, already updated.`);
+          continue;
+        }
+
         const successStatus = await submitChecklist(appsScriptUrl, {
           panelId: layoutPanel ? layoutPanel.id : `tmp-${selectedProject.replace(/\s+/g, '-')}-${selectedPanelName.replace(/\s+/g, '-')}-${code.replace(/\s+/g, '-')}`,
           project: selectedProject,
           panelName: selectedPanelName,
           panelCode: code,
           bagian: selectedBagianKerja,
-          items: pendingChecklist,
+          items: itemsToUpdate,
           user
         });
         
@@ -1219,7 +1234,7 @@ export default function App() {
           panelCode: code,
           team: selectedBagianKerja,
           bagian: selectedBagianKerja,
-          items: pendingChecklist
+          items: itemsToUpdate
         });
         
         if (!successStatus || !successHistory) allSuccess = false;
@@ -1229,13 +1244,29 @@ export default function App() {
         setIsSyncing(false);
         return;
       }
+      // Only submit items that are not already checked for this panel + bagian
+      const itemsToUpdate = pendingChecklist.filter(item => {
+        const isDone = statusChecklist.some(s => 
+          s.bagian === selectedBagianKerja && 
+          s.itemname === item &&
+          s.panelid === matchedPanelOnLayout.id
+        );
+        return !isDone;
+      });
+
+      if (itemsToUpdate.length === 0) {
+        console.warn(`Skipping all items for panel: ${matchedPanelOnLayout.id}, already updated.`);
+        setIsSyncing(false);
+        return;
+      }
+      
       const successStatus = await submitChecklist(appsScriptUrl, {
         panelId: matchedPanelOnLayout.id,
         project: selectedProject,
         panelName: selectedPanelName,
         panelCode: selectedPanelId,
         bagian: selectedBagianKerja,
-        items: pendingChecklist,
+        items: itemsToUpdate,
         user
       });
 
@@ -1246,7 +1277,7 @@ export default function App() {
         panelCode: selectedPanelId,
         team: selectedBagianKerja,
         bagian: selectedBagianKerja,
-        items: pendingChecklist
+        items: itemsToUpdate
       });
       if (!successStatus || !successHistory) allSuccess = false;
     }
@@ -1695,9 +1726,9 @@ export default function App() {
         <div className="flex items-center gap-4">
           <Sheet>
             <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" className="rounded-xl hover:bg-slate-100">
+              <button className="rounded-xl hover:bg-slate-100 p-2 text-slate-800">
                 <Menu className="w-5 h-5" />
-              </Button>
+              </button>
             </SheetTrigger>
             <SheetContent side="left" className="w-[300px] p-0 border-r border-slate-200 rounded-r-3xl overflow-hidden flex flex-col">
               <div className="bg-blue-600 p-6 text-white">
@@ -2810,31 +2841,76 @@ export default function App() {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {filteredChecklistItems.map((item) => {
                           const isPending = pendingChecklist.includes(item);
-                          
+                          const itemStatus = selectedPanelCodes.map(code => {
+                            const layoutPanel = activeLayoutPanels.find(p => p.project.toUpperCase() === selectedProject.toUpperCase() && p.name.toUpperCase() === selectedPanelName.toUpperCase() && p.code.toUpperCase() === code.toUpperCase());
+                            
+                            // Enhanced checking
+                            const match = statusChecklist.some(s => {
+                              const sBagian = s.bagian.toUpperCase().trim();
+                              const sItem = s.itemname.toUpperCase().trim();
+                                                            
+                              const matchBagian = sBagian === selectedBagianKerja.toUpperCase().trim();
+                              const matchItem = sItem === item.toUpperCase().trim();
+                              
+                              // Check both panelid (layout) and kodepanel (manual/fallback)
+                              let panelIdMatch = false;
+                              if (layoutPanel) {
+                                panelIdMatch = s.panelid === layoutPanel.id;
+                              }
+                              
+                              if (!panelIdMatch) {
+                                // Try kodepanel if available, cast as any because interface might be limited
+                                const sKodepanel = (s as any).kodepanel;
+                                if (sKodepanel) {
+                                  panelIdMatch = sKodepanel.toUpperCase().trim() === code.toUpperCase().trim();
+                                }
+                              }
+                              
+                              if (matchBagian && matchItem && panelIdMatch) {
+                                return true;
+                              }
+                              
+                              return false;
+                            });
+                            
+                            return match;
+                          });
+                          const allDone = selectedPanelCodes.length > 0 && itemStatus.every(s => s);
+                          const someDone = itemStatus.some(s => s);
+
                           return (
                             <div 
                               key={item}
                               onClick={() => {
+                                if (allDone) return;
                                 setPendingChecklist(prev => 
                                   prev.includes(item) ? prev.filter(i => i !== item) : [...prev, item]
                                 );
                               }}
                               className={cn(
                                 "p-4 md:p-5 rounded-2xl border transition-all flex items-center justify-between cursor-pointer",
+                                allDone ? "bg-emerald-50 border-emerald-100 opacity-60" :
+                                someDone ? "bg-amber-50 border-amber-200 shadow-md" : 
                                 isPending ? "bg-blue-50 border-blue-200 shadow-md" : "bg-white border-slate-100 hover:border-blue-200"
                               )}
                             >
                               <div className="flex items-center gap-4">
                                 <div className={cn(
                                   "w-6 h-6 rounded-lg flex items-center justify-center transition-all",
+                                  allDone ? "bg-emerald-500 text-white" :
                                   isPending ? "bg-blue-600 text-white" : "bg-slate-100 text-transparent"
                                 )}>
                                   <Check className="w-4 h-4" />
                                 </div>
-                                <span className={cn("text-[10px] font-bold uppercase tracking-wider", "text-slate-700")}>
+                                <span className={cn("text-[10px] font-bold uppercase tracking-wider", allDone ? "text-emerald-700" : someDone ? "text-amber-700" : "text-slate-700")}>
                                   {item}
                                 </span>
                               </div>
+                              {allDone ? (
+                                <span className="text-[8px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-100 px-2 py-1 rounded-md">Selesai Semua</span>
+                              ) : someDone && (
+                                <span className="text-[8px] font-black text-amber-600 uppercase tracking-widest bg-amber-100 px-2 py-1 rounded-md">Sebagian Selesai</span>
+                              )}
                             </div>
                           );
                         })}
