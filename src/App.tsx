@@ -1205,10 +1205,13 @@ export default function App() {
         // Only submit items that are not already checked for this code + bagian
         const itemsToUpdate = pendingChecklist.filter(item => {
           const isDone = statusChecklist.some(s => 
-            s.bagian === selectedBagianKerja && 
-            s.itemname === item &&
-            (layoutPanel ? s.panelid === layoutPanel.id : (s as any).kodepanel === code)
+            s.bagian.toUpperCase().trim() === selectedBagianKerja.toUpperCase().trim() && 
+            s.itemname.toUpperCase().trim() === item.toUpperCase().trim() &&
+            (layoutPanel ? s.panelid === layoutPanel.id : (s as any).kodepanel.toUpperCase().trim() === code.toUpperCase().trim())
           );
+          if (isDone) {
+            console.log(`Filtering out item ${item} for code ${code} - already done`);
+          }
           return !isDone;
         });
 
@@ -1247,10 +1250,13 @@ export default function App() {
       // Only submit items that are not already checked for this panel + bagian
       const itemsToUpdate = pendingChecklist.filter(item => {
         const isDone = statusChecklist.some(s => 
-          s.bagian === selectedBagianKerja && 
-          s.itemname === item &&
+          s.bagian.toUpperCase().trim() === selectedBagianKerja.toUpperCase().trim() && 
+          s.itemname.toUpperCase().trim() === item.toUpperCase().trim() &&
           s.panelid === matchedPanelOnLayout.id
         );
+        if (isDone) {
+          console.log(`Filtering out item ${item} for panel ${matchedPanelOnLayout.id} - already done`);
+        }
         return !isDone;
       });
 
