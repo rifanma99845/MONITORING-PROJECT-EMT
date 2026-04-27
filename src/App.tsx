@@ -1061,6 +1061,17 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (currentView === "update_wiring" || currentView === "update_busbar") {
+      setSelectedProject("");
+      setSelectedPanelName("");
+      setSelectedPanelId("");
+      setSelectedPanelCodes([]);
+      setSelectedBagianKerja("");
+      setPendingChecklist([]);
+    }
+  }, [currentView]);
+
+  useEffect(() => {
     const url = appsScriptUrl;
     if (url) {
       handleInitData(url);
@@ -1133,6 +1144,7 @@ export default function App() {
     setUserRole(null);
     setUserTeam(null);
     setFullName(null);
+    setLoginData({ username: "", password: "" }); // Reset login fields
     localStorage.removeItem("emt_user");
     localStorage.removeItem("emt_role");
     localStorage.removeItem("emt_team");
@@ -1191,7 +1203,7 @@ export default function App() {
         const layoutPanel = activeLayoutPanels.find(p => p.project.toUpperCase() === selectedProject.toUpperCase() && p.name.toUpperCase() === selectedPanelName.toUpperCase() && p.code.toUpperCase() === code.toUpperCase());
         
         const successStatus = await submitChecklist(appsScriptUrl, {
-          panelId: layoutPanel ? layoutPanel.id : "",
+          panelId: layoutPanel ? layoutPanel.id : `tmp-${selectedProject.replace(/\s+/g, '-')}-${selectedPanelName.replace(/\s+/g, '-')}-${code.replace(/\s+/g, '-')}`,
           project: selectedProject,
           panelName: selectedPanelName,
           panelCode: code,
@@ -1699,7 +1711,7 @@ export default function App() {
                       size="icon" 
                       className="text-white hover:bg-white/20 rounded-xl"
                       onClick={() => {
-                        navigator.clipboard.writeText("https://work-flow-emt.vercel.app/").then(() => {
+                        navigator.clipboard.writeText("https://monitoring-project-emt.vercel.app/").then(() => {
                           setIsCopied(true);
                           setTimeout(() => setIsCopied(false), 2000);
                         });
