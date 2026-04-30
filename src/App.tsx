@@ -3048,10 +3048,10 @@ export default function App() {
                       </Button>
                     </div>
                   </div>
-                  <ScrollArea className="flex-1 p-4">
+                  <ScrollArea className="flex-1 p-4 h-[500px]">
                     <div className="space-y-2">
                       {availableProjects.map(proj => (
-                        <div 
+                        <div
                           key={proj}
                           onClick={() => {
                             setSettingsSelectedProject(proj);
@@ -3068,12 +3068,12 @@ export default function App() {
                               {masterData.projects.find(p => p.name === proj)?.panels.length || 0} PNL
                             </span>
                           </div>
-                          <Trash2 
+                          <Trash2
                             onClick={(e) => {
                               e.stopPropagation();
                               handleDeleteMaster('project', proj);
                             }}
-                            className={cn("w-3.5 h-3.5 transition-opacity", settingsSelectedProject === proj ? "text-blue-300 opacity-100" : "text-slate-300 opacity-0 group-hover:opacity-100")} 
+                            className={cn("w-3.5 h-3.5 transition-opacity", settingsSelectedProject === proj ? "text-blue-300 opacity-100" : "text-slate-300 opacity-0 group-hover:opacity-100")}
                           />
                         </div>
                       ))}
@@ -3107,7 +3107,7 @@ export default function App() {
                       </Button>
                     </div>
                   </div>
-                  <ScrollArea className="flex-1 p-4">
+                  <ScrollArea className="flex-1 p-4 h-[500px]">
                     <div className="space-y-2">
                       {settingsSelectedProject && (masterData.projects.find(p => p.name === settingsSelectedProject)?.panels || []).map(pnl => (
                         <div 
@@ -3158,7 +3158,7 @@ export default function App() {
                       </Button>
                     </div>
                   </div>
-                  <ScrollArea className="flex-1 p-4">
+                  <ScrollArea className="flex-1 p-4 h-[500px]">
                     <div className="space-y-2">
                       {settingsSelectedPanelName && (masterData.projects.find(p => p.name === settingsSelectedProject)?.panels.find(p => p.name === settingsSelectedPanelName)?.codes || []).map(code => (
                         <div 
@@ -3199,7 +3199,7 @@ export default function App() {
                       </Button>
                     </div>
                   </div>
-                  <ScrollArea className="flex-1 p-4">
+                  <ScrollArea className="flex-1 p-4 h-[500px]">
                     <div className="space-y-2">
                       {masterData.teams.map(team => (
                         <div 
