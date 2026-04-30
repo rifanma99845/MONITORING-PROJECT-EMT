@@ -41,6 +41,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { fetchAppData, loginUser, registerUser, saveLayout, submitChecklist, updateMasterData, submitUpdateHistory, submitDelivery, deletePanelFromSheet, PengerjaanItem, StatusChecklist, type MasterData } from "./services/spreadsheetService";
@@ -103,7 +104,7 @@ const ExecutiveView = forwardRef(({
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.98 }}
       transition={{ duration: 0.5, ease: "easeInOut" }}
-      className={cn("w-full max-w-7xl min-h-[80vh] rounded-[48px] border shadow-2xl overflow-hidden relative p-10 flex flex-col gap-10", layoutTheme === "dark" ? "bg-[#020617] border-slate-800" : "bg-white border-slate-200", isFullScreen && "fixed inset-0 z-[100] rounded-none p-10 overflow-auto")}
+      className={cn("w-full max-w-7xl h-[calc(100vh-2rem)] rounded-[32px] border shadow-2xl relative p-6 flex flex-col gap-2", layoutTheme === "dark" ? "bg-[#020617] border-slate-800" : "bg-white border-slate-200", isFullScreen && "fixed inset-0 z-[100] rounded-none p-6")}
     >
       {/* Collapsible Executive Toolbar */}
       <motion.div 
@@ -196,7 +197,7 @@ const ExecutiveView = forwardRef(({
 
       {/* Content Wrapper with Zoom */}
       <div 
-        className="flex-1 flex flex-col gap-12 transition-transform duration-200"
+        className="flex-1 flex flex-col gap-2 transition-transform duration-200"
         style={{ 
           transform: `scale(${1 + (zoomPercent / 100) * 0.5})`,
           transformOrigin: "center top"
@@ -287,6 +288,49 @@ const ExecutiveView = forwardRef(({
             </div>
           </div>
         ))}
+      </div>
+
+      {/* Chart: Project Progress */}
+      <div className={cn("rounded-2xl p-4 border shadow-sm flex-1 min-h-[150px]", layoutTheme === "dark" ? "bg-slate-800/50 border-slate-700" : "bg-white border-slate-100")}>
+        <h4 className={cn("font-bold text-xs tracking-tight uppercase mb-2", layoutTheme === "dark" ? "text-slate-300" : "text-slate-600")}>Project Progress</h4>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={(() => {
+            const projects = Array.from(new Set(panels.map((p: any) => p.project)));
+            return projects.map((projectName: any) => {
+              const panelsInWarehouse = panels.filter((p: any) => 
+                (p.warehouse === "Warehouse 1" || p.warehouse === "Warehouse 2") && 
+                p.project === projectName
+              );
+              const total = panelsInWarehouse.length;
+              // Calculate average progress of all panels in this project
+              const sumProgress = panelsInWarehouse.reduce((acc: number, p: any) => acc + calculateTotalProgress(p), 0);
+              const averageProgress = total === 0 ? 0 : Math.round(sumProgress / total);
+              
+              return { name: projectName, percentage: averageProgress };
+            });
+          })()}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={layoutTheme === "dark" ? "#334155" : "#e2e8f0"} />
+            <XAxis dataKey="name" tick={{fontSize: 10}} tickLine={false} axisLine={false} />
+            <YAxis tick={{fontSize: 10}} tickLine={false} axisLine={false} domain={[0, 100]} />
+            <Tooltip contentStyle={{ borderRadius: '12px', background: layoutTheme === 'dark' ? '#1e293b' : '#ffffff', border: 'none' }} cursor={{fill: 'transparent'}} />
+            <Bar dataKey="percentage" radius={[4, 4, 0, 0]} barSize={60} label={{ position: 'top', fill: layoutTheme === 'dark' ? '#f8fafc' : '#475569', fontSize: 10, formatter: (value: number) => `${value}%` }}>
+              {(() => {
+                const projects = Array.from(new Set(panels.map((p: any) => p.project)));
+                return projects.map((projectName: any) => {
+                  const panelsInWarehouse = panels.filter((p: any) => 
+                    (p.warehouse === "Warehouse 1" || p.warehouse === "Warehouse 2") && 
+                    p.project === projectName
+                  );
+                  const total = panelsInWarehouse.length;
+                  const sumProgress = panelsInWarehouse.reduce((acc: number, p: any) => acc + calculateTotalProgress(p), 0);
+                  const averageProgress = total === 0 ? 0 : Math.round(sumProgress / total);
+                  const color = averageProgress < 30 ? "#ef4444" : averageProgress < 70 ? "#f59e0b" : "#10b981";
+                  return <Cell key={`cell-${projectName}`} fill={color} />;
+                });
+              })()}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
       </div>
 
       {/* Footer Info */}
@@ -2895,9 +2939,9 @@ export default function App() {
                               }}
                               className={cn(
                                 "p-4 md:p-5 rounded-2xl border transition-all flex items-center justify-between cursor-pointer",
-                                allDone ? "bg-emerald-50 border-emerald-100 opacity-60" :
-                                someDone ? "bg-amber-50 border-amber-200 shadow-md" : 
-                                isPending ? "bg-blue-50 border-blue-200 shadow-md" : "bg-white border-slate-100 hover:border-blue-200"
+                                allDone ? "bg-emerald-50 border-emerald-500 border-2 opacity-90" :
+                                someDone ? "bg-amber-50 border-amber-500 border-2 shadow-sm" : 
+                                isPending ? "bg-blue-50 border-blue-500 border-2 shadow-sm" : "bg-white border-slate-200 hover:border-slate-400"
                               )}
                             >
                               <div className="flex items-center gap-4">
